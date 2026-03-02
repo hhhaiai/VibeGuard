@@ -28,9 +28,9 @@ VibeGuard is a MITM HTTPS proxy for protecting sensitive data when vibecoding.
 
 ```mermaid
 flowchart LR
-  C[Client: Codex/Cursor/...] -->|HTTPS via proxy settings| P[Proxy: MITM TLS]
-  P -->|Request body| R[Redact engine]
-  R -->|Redacted request| U[Upstream AI API]
+  C[Client: Codex / Claude / IDE] -->|HTTPS via proxy| P[Proxy: MITM TLS]
+  P -->|Request body| R[Redaction engine<br/>Keywords + Generic PII]
+  R -->|Placeholders| U[Upstream AI API]
   U -->|Response JSON/SSE| S[Restore engine]
   S -->|Restored response| C
 
@@ -44,6 +44,16 @@ flowchart LR
   P -->|Audit events| A[Audit]
   UI --> A
 ```
+
+## Integrations
+
+Tools that VibeGuard can launch in “process-only” proxy mode:
+
+- Codex CLI: `vibeguard codex`
+- Claude Code: `vibeguard claude`
+- Gemini CLI: `vibeguard gemini`
+- OpenCode: `vibeguard opencode`
+- Qwen CLI: `vibeguard qwen`
 
 ## Screenshots
 

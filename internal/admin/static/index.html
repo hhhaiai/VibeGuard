@@ -634,7 +634,6 @@ async function initLang() {
   } catch (e) { /* ignore */ }
 
   saved = normalizeLang(saved);
-  // 兼容旧版本：此前只有 vibeguard.lang，没有 source 字段。这里将其视为“手动选择”。
   if (saved && (source === 'manual' || source === '')) {
     applyLang(saved);
     if (source === '') {
@@ -1648,7 +1647,6 @@ function confirmAddKeyword() {
   closeModal();
   addPattern('keyword', { value: v, category: cat });
 }
-// 格式匹配：提供“掩码语法”（更友好）与“变量写法”（兼容旧版）
 const MASK_VARS = {
   '#': { desc: { zh: '单个数字 (0-9)', en: 'Single digit (0-9)' } },
   'A': { desc: { zh: '单个字母 (a-z, A-Z)', en: 'Single letter (a-z, A-Z)' } },
@@ -1669,7 +1667,6 @@ const PRESET_RULES = [
   { id: 'mac', name: { zh: 'MAC 地址', en: 'MAC address' }, desc: { zh: '如 00:1A:2B:3C:4D:5E', en: 'e.g. 00:1A:2B:3C:4D:5E' }, pattern: '(?i)(?:[0-9a-f]{2}:){5}[0-9a-f]{2}', category: 'MAC' }
 ];
 
-// 变量写法（旧版）：{d} / {d{3}} / {w+} / {@} 等
 const FORMAT_VARS = {
   'd': { regex: '\\\\d', desc: { zh: '单个数字 (0-9)', en: 'Single digit (0-9)' } },
   'd{N}': { regex: null, desc: { zh: 'N个数字', en: 'N digits' } },

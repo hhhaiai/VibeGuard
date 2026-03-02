@@ -7,7 +7,6 @@ import (
 )
 
 // DefaultRecognizers 返回一组“Presidio 风格”的内置识别器（纯 Go，无外部 HTTP）。
-// 原型阶段固定开启常见类型；接入主流程后再做可配置化（按需启用/关闭）。
 func DefaultRecognizers() []recognizer.Recognizer {
 	return []recognizer.Recognizer{
 		NewEmailRecognizer(),

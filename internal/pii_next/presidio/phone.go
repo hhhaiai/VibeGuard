@@ -14,11 +14,6 @@ func NewPhoneRecognizer() recognizer.Recognizer {
 		name:     "presidio-phone",
 		category: "PHONE",
 		priority: 110,
-		// 尽量宽松的国际电话格式：允许 +、空格、括号、短横线、点号。
-		//
-		// 注意：为了兼容 "+1 ..." 这种以非单词字符开头的号码，这里用捕获组避开 \b 的限制：
-		// - 前置用 (^|非单词字符) 做锚定
-		// - 命中范围使用第 1 个捕获组，避免把前置字符一起替换
 		re:    mustCompile(`(?:^|[^0-9A-Za-z_])(\+?\d[\d()\-\.\s]{6,}\d)\b`),
 		group: 1,
 		validate: func(matched []byte) bool {
@@ -27,21 +22,15 @@ func NewPhoneRecognizer() recognizer.Recognizer {
 				return false
 			}
 
-			// 明确规避常见日期/时间戳（避免把日志/代码里的时间信息错误脱敏）。
 			if looksLikeDateOrTimestamp(s) {
 				return false
 			}
 
 			d := digitsOnly(s)
-			// E.164 上限 15 位。
-			// 说明：各地区号码长度差异很大，最低位数不能按“固定 10/11 位”处理。
-			// 这里对“非纯数字（带格式符）/带 + 的号码”放宽到 7 位起，避免覆盖面过窄。
 			if len(d) < 7 || len(d) > 15 {
 				return false
 			}
 
-			// 纯数字串（无 +、无分隔符）误报概率更高：至少要求 10 位数字，
-			// 避免把短数字（端口/状态码/小 ID）误识别为手机号。
 			if isAllDigits(s) && !strings.HasPrefix(s, "+") && len(d) < 10 {
 				return false
 			}
@@ -74,38 +63,38 @@ func looksLikeDateOrTimestamp(s string) bool {
 	if s == "" {
 		return false
 	}
-	// ISO/常见日期
-	if reYMD.MatchString(s) {
+
+	ns := normalizeForDateCheck(s)
+
+	if reYMD.MatchString(s) || (ns != s && reYMD.MatchString(ns)) {
 		return true
 	}
-	// 常见 ISO 时间戳
-	if reYMDHMS.MatchString(s) {
+	if reYMDHMS.MatchString(s) || (ns != s && reYMDHMS.MatchString(ns)) {
 		return true
 	}
-	if isAllDigits(s) {
-		// 纯 8 位日期（YYYYMMDD）
-		if len(s) == 8 {
-			year := atoi2(s[0:4])
-			month := atoi2(s[4:6])
-			day := atoi2(s[6:8])
+	if looksLikeDateWithSeparators(ns) {
+		return true
+	}
+	if isAllDigits(ns) {
+		if len(ns) == 8 {
+			year := atoi2(ns[0:4])
+			month := atoi2(ns[4:6])
+			day := atoi2(ns[6:8])
 			if year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31 {
 				return true
 			}
 		}
-		// 紧凑日期时间（YYYYMMDDHHMM / YYYYMMDDHHMMSS）
-		if looksLikeCompactDateTimeDigits(s) {
+		if looksLikeCompactDateTimeDigits(ns) {
 			return true
 		}
-		// epoch 秒（10 位）/毫秒（13 位）常见于 API/日志字段（例如 created/ts），不应当被当作手机号脱敏。
-		// 这里做保守过滤：只针对以 '1' 开头的 epoch（2001~2033/2001~2033ms）以降低误伤电话号码的概率。
-		if len(s) == 10 && s[0] == '1' {
-			v := atoi64(s)
+		if len(ns) == 10 && ns[0] == '1' {
+			v := atoi64(ns)
 			if v >= 946684800 && v <= 4102444800 {
 				return true
 			}
 		}
-		if len(s) == 13 && s[0] == '1' {
-			v := atoi64(s)
+		if len(ns) == 13 && ns[0] == '1' {
+			v := atoi64(ns)
 			if v >= 946684800000 && v <= 4102444800000 {
 				return true
 			}
@@ -158,4 +147,104 @@ func looksLikeCompactDateTimeDigits(s string) bool {
 		return false
 	}
 	return true
+}
+
+func normalizeForDateCheck(s string) string {
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r', '(', ')':
+			continue
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func looksLikeDateWithSeparators(s string) bool {
+	if s == "" {
+		return false
+	}
+	if strings.HasPrefix(s, "+") {
+		return false
+	}
+	if !strings.ContainsAny(s, "-/.") {
+		return false
+	}
+
+	parts := splitOnSeparators(s)
+	if len(parts) != 3 {
+		return false
+	}
+	p0, p1, p2 := parts[0], parts[1], parts[2]
+	if p0 == "" || p1 == "" || p2 == "" {
+		return false
+	}
+
+	if len(p0) == 4 && isAllDigits(p0) && isAllDigits(p1) && isAllDigits(p2) && len(p1) <= 2 && len(p2) <= 2 {
+		year := atoi2(p0)
+		month := atoi2(p1)
+		day := atoi2(p2)
+		if year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31 {
+			return true
+		}
+	}
+
+	if len(p2) == 4 && isAllDigits(p2) && isAllDigits(p0) && isAllDigits(p1) && len(p0) <= 2 && len(p1) <= 2 {
+		month := atoi2(p0)
+		day := atoi2(p1)
+		year := atoi2(p2)
+		if year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31 {
+			return true
+		}
+	}
+
+	if len(p2) == 8 && isAllDigits(p2) && isAllDigits(p0) && isAllDigits(p1) && len(p0) <= 2 && len(p1) <= 2 {
+		month := atoi2(p0)
+		day := atoi2(p1)
+		year2 := atoi2(p2[0:4])
+		month2 := atoi2(p2[4:6])
+		day2 := atoi2(p2[6:8])
+		if month >= 1 && month <= 12 && day >= 1 && day <= 31 &&
+			year2 >= 1900 && year2 <= 2100 && month2 >= 1 && month2 <= 12 && day2 >= 1 && day2 <= 31 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func splitOnSeparators(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := make([]string, 0, 4)
+	last := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '-', '/', '.':
+			if last < i {
+				parts = append(parts, s[last:i])
+			} else {
+				parts = append(parts, "")
+			}
+			last = i + 1
+		}
+	}
+	if last <= len(s) {
+		parts = append(parts, s[last:])
+	}
+	out := parts[:0]
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }

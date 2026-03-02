@@ -1,7 +1,6 @@
 package recognizer
 
 // Registry 管理一组 Recognizer。
-// 说明：本原型阶段仅做串行执行与结果汇总；并发/超时/缓存等优化可在接入主流程后再做。
 type Registry struct {
 	recognizers []Recognizer
 }

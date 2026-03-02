@@ -73,3 +73,32 @@ func TestPhoneRecognizer_AvoidsCompactDatetimeDigits(t *testing.T) {
 		}
 	}
 }
+
+func TestPhoneRecognizer_AvoidsWeirdHyphenDateConcat(t *testing.T) {
+	t.Parallel()
+
+	rec := NewPhoneRecognizer()
+	input := []byte("bad 4-5-20251001 ok 415-555-2671 end")
+
+	matches := rec.Recognize(input)
+	var got []string
+	for _, m := range matches {
+		got = append(got, string(input[m.Start:m.End]))
+	}
+	for _, s := range got {
+		if s == "4-5-20251001" {
+			t.Fatalf("should not match date-like string: %v", got)
+		}
+	}
+	want := "415-555-2671"
+	found := false
+	for _, s := range got {
+		if s == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected to match phone %q, got %v", want, got)
+	}
+}

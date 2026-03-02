@@ -116,10 +116,7 @@ func (m *Manager) LookupReverse(original string) (string, bool) {
 }
 
 // GeneratePlaceholder creates a placeholder for the given original value (does NOT register it).
-// 说明：
-//   - 旧版使用 SHA-256(original) 的截断作为 token，容易被上游用字典攻击/撞库反推出原文；
-//   - 这里使用 HMAC-SHA256(key, original) 的截断：仍保持“同一 original → 同一 placeholder”的稳定性，
-//     但 token 不可被上游反推；其中 key 可为随机（进程内稳定）或由 CA 派生（跨进程稳定）。
+// 使用 HMAC-SHA256(key, original) 截断生成 token：同一 original 稳定映射，同时降低被字典猜测的风险。
 func (m *Manager) GeneratePlaceholder(original, category, prefix string) string {
 	key := m.placeholderKey()
 	h := hmac.New(sha256.New, key)
@@ -128,12 +125,10 @@ func (m *Manager) GeneratePlaceholder(original, category, prefix string) string 
 	hash12 := hex.EncodeToString(sum)[:12]
 	placeholder := fmt.Sprintf("%s%s_%s__", prefix, category, hash12)
 
-	// Check for collision
 	m.mu.RLock()
 	existing, exists := m.forward[placeholder]
 	m.mu.RUnlock()
 	if exists && existing != original {
-		// Collision detected, add disambiguator
 		for i := 2; ; i++ {
 			ph := fmt.Sprintf("%s%s_%s_%d__", prefix, category, hash12, i)
 			m.mu.RLock()

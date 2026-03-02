@@ -12,8 +12,6 @@ type Keyword struct {
 	Category string
 }
 
-// Recognizer 使用简单的 bytes.Index 做关键词扫描（原型阶段）。
-// 注意：后续若接入主流程，可替换为 Aho-Corasick 以提升性能。
 type Recognizer struct {
 	keywords []Keyword
 	priority int

@@ -23,7 +23,6 @@ func TestRecognizers_Smoke(t *testing.T) {
 		}
 	}
 
-	// 至少应覆盖这些常见类型（原型阶段的最低验收）。
 	wantCats := []string{"EMAIL", "PHONE", "URL", "IP", "MAC", "UUID", "CRYPTO", "IBAN", "SSN", "CREDIT_CARD"}
 	for _, cat := range wantCats {
 		if !seen[cat] {

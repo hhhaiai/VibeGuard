@@ -17,7 +17,6 @@ func NewEmailRecognizer() recognizer.Recognizer {
 		priority: 120,
 		re:       mustCompile(`(?i)\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b`),
 		validate: func(matched []byte) bool {
-			// 极端误报：连续 ".." 等可后续优化；原型阶段做基础过滤。
 			s := string(matched)
 			return !strings.Contains(s, "..")
 		},

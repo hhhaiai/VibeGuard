@@ -54,7 +54,6 @@ func isTrustedDarwin(certPath string) bool {
 
 	var keychains []string
 	if home, ok := os.LookupEnv("HOME"); ok && home != "" {
-		// 兼容旧版 keychain 文件名
 		loginCandidates := []string{
 			filepath.Join(home, "Library", "Keychains", "login.keychain-db"),
 			filepath.Join(home, "Library", "Keychains", "login.keychain"),

@@ -6,7 +6,6 @@ func TestCreditCardRecognizer_DoesNotMatchCompactDatetime(t *testing.T) {
 	t.Parallel()
 
 	rec := NewCreditCardRecognizer()
-	// 14 位紧凑日期时间（YYYYMMDDHHMMSS），不应被当作信用卡号命中。
 	input := []byte("ts 20260302123456 end")
 
 	matches := rec.Recognize(input)
@@ -32,4 +31,3 @@ func TestCreditCardRecognizer_DoesNotConsumeTrailingSpace(t *testing.T) {
 		t.Fatalf("expected exact match without trailing space, got %q", got)
 	}
 }
-

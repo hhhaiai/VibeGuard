@@ -183,12 +183,11 @@ func resolveLogPath(configured string) (effective string, warning string) {
 
 	expanded := vglog.ExpandPath(configured)
 	if expanded != configured {
-		// 优先使用“正确展开后的路径”；但为了兼容旧版本（未展开 ~ 导致写到相对路径），若展开路径不存在则回退。
 		if fileExists(expanded) {
 			return expanded, ""
 		}
 		if fileExists(configured) {
-			return configured, fmt.Sprintf("检测到旧版未展开 ~ 的日志路径：当前读取 %s（建议升级后重启让日志写入 %s）", configured, expanded)
+			return configured, fmt.Sprintf("检测到日志路径未展开 ~：当前读取 %s（如需写入 %s，请重启服务）", configured, expanded)
 		}
 		return expanded, ""
 	}
