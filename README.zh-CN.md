@@ -1,6 +1,6 @@
 <p align="center">
-  <img src="./image/logo.jpg" alt="VibeGuard" width="720"><br>
-  <em>规则之速，NLP 之准，为 AI 编程构筑无感屏障。</em><br>
+  <img src="./image/logo.jpg" alt="VibeGuard" width="720"><br><br>
+  <em>规则之速，NLP 之准，为 AI 编程构筑无感屏障。</em><br><br>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/inkdust2021/VibeGuard"></a>
   <a href="go.mod"><img alt="Go 版本" src="https://img.shields.io/github/go-mod/go-version/inkdust2021/VibeGuard"></a>
   <a href="https://github.com/inkdust2021/VibeGuard/actions/workflows/ghcr.yml"><img alt="GHCR 构建" src="https://img.shields.io/github/actions/workflow/status/inkdust2021/VibeGuard/ghcr.yml?label=ghcr"></a>

@@ -1,6 +1,6 @@
 <p align="center">
-  <img src="./image/logo.jpg" alt="VibeGuard" width="720"><br>
-  <em>Rule-speed efficiency, NLP-grade accuracy—Seamless privacy for your AI coding vibe.</em><br>
+  <img src="./image/logo.jpg" alt="VibeGuard" width="720"><br><br>
+  <em>Rule-speed efficiency, NLP-grade accuracy—Seamless privacy for your AI coding vibe.</em><br><br>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/inkdust2021/VibeGuard"></a>
   <a href="go.mod"><img alt="Go Version" src="https://img.shields.io/github/go-mod/go-version/inkdust2021/VibeGuard"></a>
   <a href="https://github.com/inkdust2021/VibeGuard/actions/workflows/ghcr.yml"><img alt="GHCR Build" src="https://img.shields.io/github/actions/workflow/status/inkdust2021/VibeGuard/ghcr.yml?label=ghcr"></a>
