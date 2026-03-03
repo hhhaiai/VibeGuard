@@ -1,0 +1,102 @@
+name: 发布 Release（预编译二进制）
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建二进制
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+
+      - name: 构建（CGO=0）
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          VG_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
+          commit="$(git rev-parse HEAD)"
+          build_date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          ldflags="-s -w \
+            -X github.com/inkdust2021/vibeguard/internal/version.Version=${VG_TAG} \
+            -X github.com/inkdust2021/vibeguard/internal/version.GitCommit=${commit} \
+            -X github.com/inkdust2021/vibeguard/internal/version.BuildDate=${build_date}"
+
+          bin="vibeguard"
+          if [[ "${GOOS}" == "windows" ]]; then
+            bin="vibeguard.exe"
+          fi
+
+          go build -trimpath -buildvcs=false -ldflags "${ldflags}" -o "${bin}" ./cmd/vibeguard
+
+          if [[ "${GOOS}" == "windows" ]]; then
+            zip -9 "vibeguard_windows_${GOARCH}.zip" "${bin}"
+          else
+            tar -czf "vibeguard_${GOOS}_${GOARCH}.tar.gz" "${bin}"
+          fi
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            vibeguard_*.tar.gz
+            vibeguard_*.zip
+
+  release:
+    name: 发布 Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 准备校验文件
+        run: |
+          set -euo pipefail
+
+          mkdir -p out
+          find artifacts -type f \( -name "vibeguard_*.tar.gz" -o -name "vibeguard_*.zip" \) -exec cp {} out/ \;
+
+          (cd out && sha256sum vibeguard_* > checksums.txt)
+
+      - name: 创建/更新 Release 并上传资产
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            out/*

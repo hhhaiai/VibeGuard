@@ -4,7 +4,7 @@ set -euo pipefail
 # VibeGuard 安装脚本（中英双语） / VibeGuard installer (ZH/EN)
 #
 # 功能 / Features:
-# - 安装 vibeguard 二进制（优先从源码构建，其次 go install） / Install vibeguard (build from source or go install)
+# - 安装 vibeguard 二进制（优先下载 Release 预编译，其次从源码构建，再次 go install） / Install vibeguard (prefer Release binaries; fallback to source build; then go install)
 # - 导出（“下载”）系统信任所需的 CA 证书到文件 / Export ("download") the CA certificate to a file
 # - 可选：安装 CA 到系统信任库（会触发 sudo） / Optional: install CA into system trust store (will invoke sudo)
 #
@@ -73,6 +73,166 @@ need() {
 
 in_repo() {
   [[ -f "go.mod" && -f "cmd/vibeguard/main.go" ]]
+}
+
+normalize_version() {
+  # 允许输入 0.2.0 / v0.2.0 / latest
+  local v="${1:-}"
+  v="$(echo "${v}" | tr -d '[:space:]')"
+  if [[ -z "${v}" || "${v}" == "latest" ]]; then
+    echo "latest"
+    return 0
+  fi
+  case "${v}" in
+    v*) echo "${v}" ;;
+    *) echo "v${v}" ;;
+  esac
+}
+
+detect_goos() {
+  local os_name
+  os_name="$(uname -s 2>/dev/null || true)"
+  case "${os_name}" in
+    Darwin) echo "darwin" ;;
+    Linux) echo "linux" ;;
+    *) echo "" ;;
+  esac
+}
+
+detect_goarch() {
+  local arch
+  arch="$(uname -m 2>/dev/null || true)"
+  case "${arch}" in
+    x86_64|amd64) echo "amd64" ;;
+    arm64|aarch64) echo "arm64" ;;
+    *) echo "" ;;
+  esac
+}
+
+download_file() {
+  local url="${1:-}"
+  local out="${2:-}"
+  [[ -n "${url}" && -n "${out}" ]] || return 1
+  if have curl; then
+    curl -fsSL "${url}" -o "${out}"
+  elif have wget; then
+    wget -qO "${out}" "${url}"
+  else
+    return 1
+  fi
+}
+
+sha256_file() {
+  local p="${1:-}"
+  [[ -f "${p}" ]] || return 1
+  if have sha256sum; then
+    sha256sum "${p}" | awk '{print $1}'
+  elif have shasum; then
+    shasum -a 256 "${p}" | awk '{print $1}'
+  elif have openssl; then
+    openssl dgst -sha256 "${p}" | awk '{print $2}'
+  else
+    return 1
+  fi
+}
+
+install_vibeguard_from_release() {
+  local install_dir="${1:-}"
+  local repo="${2:-inkdust2021/VibeGuard}"
+  local version="${3:-latest}"
+  local verify="${4:-1}" # 1|0
+
+  [[ -n "${install_dir}" ]] || return 1
+  version="$(normalize_version "${version}")"
+
+  local goos
+  goos="$(detect_goos)"
+  local goarch
+  goarch="$(detect_goarch)"
+
+  if [[ -z "${goos}" || -z "${goarch}" ]]; then
+    return 1
+  fi
+
+  if [[ "${goos}" != "darwin" && "${goos}" != "linux" ]]; then
+    return 1
+  fi
+
+  if [[ "${goarch}" != "amd64" && "${goarch}" != "arm64" ]]; then
+    return 1
+  fi
+
+  local base="https://github.com/${repo}/releases"
+  local dl_base=""
+  if [[ "${version}" == "latest" ]]; then
+    dl_base="${base}/latest/download"
+  else
+    dl_base="${base}/download/${version}"
+  fi
+
+  local asset="vibeguard_${goos}_${goarch}.tar.gz"
+  local url_asset="${dl_base}/${asset}"
+  local url_sum="${dl_base}/checksums.txt"
+
+  say "安装 vibeguard（Release 预编译）" "Installing vibeguard (Release binary)"
+  echo "$(t "仓库：" "Repo: ")${repo}"
+  echo "$(t "版本：" "Version: ")${version}"
+  echo "$(t "平台：" "Platform: ")${goos}/${goarch}"
+
+  if [[ "${verify}" == "1" ]]; then
+    if ! (have sha256sum || have shasum || have openssl); then
+      say "未检测到 sha256 校验工具：将跳过校验" "No sha256 tool found: verification will be skipped"
+      verify="0"
+    fi
+  fi
+
+  (
+    set -euo pipefail
+    tmp="$(mktemp -d -t vibeguard-install.XXXXXX 2>/dev/null || mktemp -d "/tmp/vibeguard-install.XXXXXX")"
+    trap 'rm -rf "$tmp"' EXIT
+
+    need tar
+
+    if ! download_file "${url_asset}" "${tmp}/${asset}"; then
+      echo "$(t "下载失败：" "Download failed: ")${url_asset}" >&2
+      exit 2
+    fi
+
+    if [[ "${verify}" == "1" ]]; then
+      if ! download_file "${url_sum}" "${tmp}/checksums.txt"; then
+        echo "$(t "下载校验文件失败：" "Failed to download checksums: ")${url_sum}" >&2
+        exit 3
+      fi
+
+      expected="$(grep -E "[[:space:]]${asset}$" "${tmp}/checksums.txt" | awk '{print $1}' | head -n 1 || true)"
+      if [[ -z "${expected}" ]]; then
+        echo "$(t "校验文件中未找到条目：" "Checksums entry not found: ")${asset}" >&2
+        exit 4
+      fi
+
+      actual="$(sha256_file "${tmp}/${asset}" || true)"
+      if [[ -z "${actual}" || "${actual}" != "${expected}" ]]; then
+        echo "$(t "sha256 校验失败（可能被篡改或下载损坏）" "sha256 verification failed (possible tampering or corrupted download)")" >&2
+        echo "  expected=${expected}" >&2
+        echo "  actual=${actual}" >&2
+        exit 5
+      fi
+    fi
+
+    tar -xzf "${tmp}/${asset}" -C "${tmp}"
+    if [[ ! -f "${tmp}/vibeguard" ]]; then
+      echo "$(t "解压后未找到 vibeguard 二进制" "vibeguard binary not found after extraction")" >&2
+      exit 6
+    fi
+
+    mkdir -p "${install_dir}"
+    if have install; then
+      install -m 0755 "${tmp}/vibeguard" "${install_dir}/vibeguard"
+    else
+      cp -f "${tmp}/vibeguard" "${install_dir}/vibeguard"
+      chmod 0755 "${install_dir}/vibeguard" >/dev/null 2>&1 || true
+    fi
+  )
 }
 
 # 交互检测：
@@ -781,6 +941,8 @@ PATH_MODE="auto"      # auto|add|skip
 AUTOSTART_MODE="auto" # auto|add|skip
 NON_INTERACTIVE="0"
 INSTALL_METHOD="auto" # auto|native|docker
+INSTALL_VERSION="latest"
+VERIFY_RELEASE="1"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -788,6 +950,8 @@ while [[ $# -gt 0 ]]; do
       INSTALL_DIR="${2:-}"; shift 2;;
     --method)
       INSTALL_METHOD="${2:-}"; shift 2;;
+    --version)
+      INSTALL_VERSION="${2:-}"; shift 2;;
     --trust)
       TRUST_MODE="${2:-}"; TRUST_MODE_SET="1"; shift 2;;
     --export)
@@ -798,6 +962,8 @@ while [[ $# -gt 0 ]]; do
       PATH_MODE="${2:-}"; shift 2;;
     --autostart)
       AUTOSTART_MODE="${2:-}"; shift 2;;
+    --no-verify)
+      VERIFY_RELEASE="0"; shift 1;;
     --non-interactive)
       NON_INTERACTIVE="1"; shift 1;;
     -h|--help)
@@ -807,11 +973,13 @@ VibeGuard 安装脚本 / Installer
 参数 / Options:
   --dir DIR              安装目录 / Install dir (default: $HOME/.local/bin)
   --method METHOD        auto|native|docker (default: auto)
+  --version VERSION      安装版本：latest|vX.Y.Z（native 会优先下载 Release） / Version: latest|vX.Y.Z (native prefers Release)
   --trust MODE           system|user|auto|skip (default: system)
   --export               导出 CA 证书到文件 / Export CA cert to a file
   --lang LANG            zh|en (default: auto)
   --path MODE            auto|add|skip (default: auto)
   --autostart MODE       auto|add|skip (default: auto)
+  --no-verify            跳过 Release 下载的 sha256 校验（不推荐） / Skip sha256 verification (not recommended)
   --non-interactive      非交互模式（尽量使用默认值） / Non-interactive (use defaults)
 
 示例 / Examples:
@@ -941,19 +1109,29 @@ fi
 INSTALL_DIR="$(expand_user_path "${INSTALL_DIR}")"
 mkdir -p "${INSTALL_DIR}"
 
-need go
-
 say "安装目录：${INSTALL_DIR}" "Install dir: ${INSTALL_DIR}"
 
-if in_repo; then
+release_repo="${VG_INSTALL_REPO:-inkdust2021/VibeGuard}"
+if ! in_repo; then
+  # 非源码目录：优先从 GitHub Release 下载预编译二进制（不需要 Go）
+  if ! install_vibeguard_from_release "${INSTALL_DIR}" "${release_repo}" "${INSTALL_VERSION}" "${VERIFY_RELEASE}"; then
+    say "Release 安装失败：将回退到 go install（需要 Go）" "Release install failed: falling back to go install (requires Go)"
+    need go
+    GOBIN="${INSTALL_DIR}" go install github.com/inkdust2021/vibeguard/cmd/vibeguard@latest
+  fi
+else
+  # 源码目录：默认本地构建（更适合开发/调试）
+  need go
   say "检测到仓库源码：从源码构建并安装" "Repo detected: build from source"
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d -t vibeguard-build.XXXXXX 2>/dev/null || mktemp -d "/tmp/vibeguard-build.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT
   go build -o "${tmp}/vibeguard" ./cmd/vibeguard
-  install -m 0755 "${tmp}/vibeguard" "${INSTALL_DIR}/vibeguard"
-else
-  say "未检测到源码：通过 go install 安装" "Repo not found: installing via go install"
-  GOBIN="${INSTALL_DIR}" go install github.com/inkdust2021/vibeguard/cmd/vibeguard@latest
+  if have install; then
+    install -m 0755 "${tmp}/vibeguard" "${INSTALL_DIR}/vibeguard"
+  else
+    cp -f "${tmp}/vibeguard" "${INSTALL_DIR}/vibeguard"
+    chmod 0755 "${INSTALL_DIR}/vibeguard" >/dev/null 2>&1 || true
+  fi
 fi
 
 VG="${INSTALL_DIR}/vibeguard"
