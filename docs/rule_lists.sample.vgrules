@@ -1,0 +1,58 @@
+# VibeGuard rule list sample (.vgrules)
+#
+# Line-based rules. Blank lines and comment lines are ignored. Comment line prefixes:
+#   #   //   ;   !
+#
+# Rule formats:
+#   keyword <CATEGORY> <TEXT...>
+#   regex   <CATEGORY> <RE2_PATTERN...>
+#
+# Notes:
+# - CATEGORY is normalized to [A-Z0-9_]
+# - keyword is an exact substring match (case-sensitive)
+# - regex uses Go RE2 syntax; if capturing groups exist, VibeGuard will replace the first group (safer)
+
+# --- keyword: best for fixed tokens (names / codenames / org names) ---
+keyword PERSON John Doe
+keyword ORG Example Corp
+
+# --- regex: best for structured values (email / tokens / IDs) ---
+# Prefer "boundary + capturing group" so only the sensitive value is replaced.
+regex EMAIL (?i)(?:^|[^a-z0-9._%+-])([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})(?:$|[^a-z0-9._%+-])
+
+# Phone numbers (loose; tighten for your team)
+regex PHONE (?i)(?:phone|tel|mobile)\s*[:：]?\s*(\+?\d[\d\s().-]{7,20}\d)
+regex PHONE (?:^|[^0-9])(\+?\d[\d\s().-]{7,20}\d)(?:$|[^0-9])
+
+# URL (simple; customize for stricter rules)
+regex URL (?i)(https?://[^\s"'<>]+)
+
+# IPv4 (0~255 constraint)
+regex IP (?:^|[^0-9])((?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})(?:$|[^0-9])
+
+# UUID (generic v1~v5 format)
+regex UUID (?i)(?:^|[^0-9a-f])([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:$|[^0-9a-f])
+
+# SSN (US)
+regex SSN (?:^|\D)(\d{3}-\d{2}-\d{4})(?:$|\D)
+
+# IBAN (format only; no checksum; allows spaces)
+regex IBAN (?i)(?:^|[^a-z0-9])([a-z]{2}\d{2}(?:\s?[a-z0-9]){11,30})(?:$|[^a-z0-9])
+
+# Credit card number (format only; no Luhn; prefer tightening with context)
+regex CREDIT_CARD (?:^|[^0-9])(\d{13,19})(?:$|[^0-9])
+regex CREDIT_CARD (?:^|[^0-9])(\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4})(?:$|[^0-9])
+regex CREDIT_CARD (?:^|[^0-9])(\d{4}[- ]?\d{6}[- ]?\d{5})(?:$|[^0-9])
+
+# MAC address (colon/dash separated)
+regex MAC (?i)(?:^|[^0-9a-f])((?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2})(?:$|[^0-9a-f])
+
+# Crypto addresses (BTC/ETH; loose examples)
+regex CRYPTO (?i)(?:^|[^a-z0-9])(bc1[ac-hj-np-z02-9]{25,39}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})(?:$|[^a-z0-9])
+regex CRYPTO (?i)(?:^|[^0-9a-f])(0x[0-9a-f]{40})(?:$|[^0-9a-f])
+
+# Use a capturing group to replace only the value (avoid replacing the parameter name)
+regex API_KEY (?i)api[_-]?key=([^&\s]{8,128})
+
+# China National ID (format only; no checksum)
+regex CHINA_ID \d{17}[\dXx]
