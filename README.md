@@ -68,7 +68,7 @@ flowchart LR
   SUB --> CACHE
   CACHE --> RL
 
-  UI[Admin UI /manager/] --> CFG[Config (hot reload)]
+  UI[Admin UI /manager/] --> CFG["Config (hot reload)"]
   UI --> LOCAL
   UI --> SUB
   CFG --> PIPE

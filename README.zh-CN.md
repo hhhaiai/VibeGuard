@@ -69,7 +69,7 @@ flowchart LR
   SUB --> CACHE
   CACHE --> RL
 
-  UI[管理页 /manager/] --> CFG[配置（热加载）]
+  UI[管理页 /manager/] --> CFG["配置（热加载）"]
   UI --> LOCAL
   UI --> SUB
   CFG --> PIPE
