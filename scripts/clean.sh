@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 清理仓库内的本地产物/临时目录（默认仅预览）。
-# 用法：
-#   scripts/clean.sh          # 预览将删除哪些内容
-#   scripts/clean.sh --force  # 实际删除
+# Clean local artifacts / temporary directories in this repo (defaults to preview).
+# Usage:
+#   scripts/clean.sh          # preview what would be removed
+#   scripts/clean.sh --force  # actually delete
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -56,4 +56,3 @@ for p in "${targets[@]}"; do
   fi
 done
 echo "完成。"
-

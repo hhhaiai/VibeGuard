@@ -3,9 +3,7 @@ package rulelists
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -28,26 +26,30 @@ const (
 	maxSubscriptionRuleListBytes      = 10 * 1024 * 1024 // 10MB
 )
 
-// SubscriptionMeta 用于记录订阅缓存的状态（用于条件请求与管理端展示）。
+// SubscriptionMeta tracks the subscription cache state (for conditional requests and admin UI display).
 type SubscriptionMeta struct {
 	URL          string `json:"url"`
-	SigURL       string `json:"sig_url,omitempty"`
 	ETag         string `json:"etag,omitempty"`
 	LastModified string `json:"last_modified,omitempty"`
 
 	CheckedAt int64 `json:"checked_at,omitempty"`
 	UpdatedAt int64 `json:"updated_at,omitempty"`
 
+	// ContentSHA256 is the sha256 (hex) of the accepted subscription content (after parsing):
+	// - used to detect content changes
+	// - shown in the admin UI as a cache fingerprint
+	ContentSHA256 string `json:"content_sha256,omitempty"`
+	// VerifiedSHA256 is a legacy field name (easy to confuse with "verified"); kept for backward compatibility with older meta files.
+	// New code should prefer ContentSHA256.
 	VerifiedSHA256 string `json:"verified_sha256,omitempty"`
-	VerifiedSig    bool   `json:"verified_sig,omitempty"`
-	VerifiedHash   bool   `json:"verified_hash,omitempty"`
 
 	Bytes     int    `json:"bytes,omitempty"`
 	LastError string `json:"last_error,omitempty"`
 }
 
 func SubscriptionsDir() string {
-	return filepath.Join(config.GetConfigDir(), "rule_lists", "subscriptions")
+	// Subscription cache lives under ~/.vibeguard/rules/subscriptions/ for easy user inspection.
+	return filepath.Join(config.GetRulesDir(), "subscriptions")
 }
 
 func IsSubscription(rl config.RuleListConfig) bool {
@@ -138,6 +140,10 @@ func LoadSubscriptionMeta(metaPath string) (SubscriptionMeta, bool, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return SubscriptionMeta{}, false, err
 	}
+	// Backward-compat: older versions only wrote verified_sha256.
+	if strings.TrimSpace(m.ContentSHA256) == "" && strings.TrimSpace(m.VerifiedSHA256) != "" {
+		m.ContentSHA256 = strings.TrimSpace(m.VerifiedSHA256)
+	}
 	return m, true, nil
 }
 
@@ -145,6 +151,10 @@ func SaveSubscriptionMeta(metaPath string, meta SubscriptionMeta) error {
 	p := strings.TrimSpace(metaPath)
 	if p == "" {
 		return fmt.Errorf("empty meta path")
+	}
+	// Backward-compat: write the legacy field as well so older tools can still read the fingerprint.
+	if strings.TrimSpace(meta.ContentSHA256) != "" {
+		meta.VerifiedSHA256 = strings.TrimSpace(meta.ContentSHA256)
 	}
 	dir := filepath.Dir(p)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -179,7 +189,7 @@ func SubscriptionUpdateInterval(rl config.RuleListConfig) time.Duration {
 	if err != nil || d <= 0 {
 		return defaultSubscriptionUpdateInterval
 	}
-	// 防止误配成过于频繁的拉取（既浪费带宽也更容易被上游限流）。
+	// Prevent accidental overly-frequent pulls (wastes bandwidth and increases the chance of upstream rate limits).
 	if d < 10*time.Minute {
 		return 10 * time.Minute
 	}
@@ -193,8 +203,8 @@ type SyncSubscriptionOptions struct {
 	MaxBytes int
 }
 
-// SyncSubscriptionIfDue 会在“到期/强制”时拉取订阅并进行校验与落盘。
-// 返回值 updated 表示缓存内容发生变化（或首次写入）；err 仅表示本次同步失败，不应导致代理不可用。
+// SyncSubscriptionIfDue pulls the subscription when "due" (or forced) and writes it to disk.
+// updated indicates cache content changed (or first write); err only means this sync attempt failed and should not make the proxy unusable.
 func SyncSubscriptionIfDue(ctx context.Context, rl config.RuleListConfig, opts SyncSubscriptionOptions) (updated bool, meta SubscriptionMeta, err error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -227,8 +237,18 @@ func SyncSubscriptionIfDue(ctx context.Context, rl config.RuleListConfig, opts S
 	}
 
 	meta = prev
-	meta.URL = strings.TrimSpace(rl.URL)
-	meta.SigURL = strings.TrimSpace(rl.SigURL)
+	meta.URL = normalizeSubscriptionURL(strings.TrimSpace(rl.URL))
+	// If the subscription URL changes, do not reuse conditional caching headers (ETag/Last-Modified) to avoid incorrect 304s.
+	if prevOK && strings.TrimSpace(prev.URL) != "" && strings.TrimSpace(prev.URL) != strings.TrimSpace(meta.URL) {
+		prev.ETag = ""
+		prev.LastModified = ""
+		// Also clear meta fields to avoid carrying old subscription cache state onto the new subscription.
+		meta.ETag = ""
+		meta.LastModified = ""
+		meta.ContentSHA256 = ""
+		meta.VerifiedSHA256 = ""
+		meta.Bytes = 0
+	}
 
 	interval := SubscriptionUpdateInterval(rl)
 	if !opts.Force && prevOK && prev.CheckedAt > 0 && interval > 0 {
@@ -247,45 +267,45 @@ func SyncSubscriptionIfDue(ctx context.Context, rl config.RuleListConfig, opts S
 		maxBytes = maxSubscriptionRuleListBytes
 	}
 
-	// 校验 URL 合法性（默认仅允许 https；显式 allow_http 才允许 http）。
+	// Validate URL (default: https only; allow http only when allow_http is explicitly set).
 	if err := validateRemoteURL(meta.URL, rl.AllowHTTP); err != nil {
 		meta.CheckedAt = now.Unix()
 		meta.LastError = err.Error()
 		_ = SaveSubscriptionMeta(metaPath, meta)
 		return false, meta, err
 	}
-	if strings.TrimSpace(meta.SigURL) != "" {
-		if err := validateRemoteURL(meta.SigURL, rl.AllowHTTP); err != nil {
-			meta.CheckedAt = now.Unix()
-			meta.LastError = err.Error()
-			_ = SaveSubscriptionMeta(metaPath, meta)
-			return false, meta, err
+
+	// Only send conditional requests when local cache exists and last sync had no error,
+	// to avoid a 304 "washing away" an error state.
+	useConditional := false
+	if prevOK && strings.TrimSpace(prev.LastError) == "" && (strings.TrimSpace(prev.ETag) != "" || strings.TrimSpace(prev.LastModified) != "") {
+		if _, statErr := os.Stat(rulesPath); statErr == nil {
+			useConditional = true
 		}
 	}
 
-	// 远端订阅必须至少提供一种校验：签名（SigURL+PubKey）或固定 SHA256。
-	wantSig := strings.TrimSpace(meta.SigURL) != "" && strings.TrimSpace(rl.PubKey) != ""
-	wantHash := strings.TrimSpace(rl.SHA256) != ""
-	if !wantSig && !wantHash {
-		err := fmt.Errorf("订阅缺少校验信息：请配置 sig_url+pubkey 或 sha256")
-		meta.CheckedAt = now.Unix()
-		meta.LastError = err.Error()
-		_ = SaveSubscriptionMeta(metaPath, meta)
-		return false, meta, err
+	makeReq := func(withCond bool) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, meta.URL, nil)
+		if err != nil {
+			return nil, err
+		}
+		if withCond {
+			if strings.TrimSpace(prev.ETag) != "" {
+				req.Header.Set("If-None-Match", prev.ETag)
+			}
+			if strings.TrimSpace(prev.LastModified) != "" {
+				req.Header.Set("If-Modified-Since", prev.LastModified)
+			}
+		}
+		return req, nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, meta.URL, nil)
+	req, err := makeReq(useConditional)
 	if err != nil {
 		meta.CheckedAt = now.Unix()
 		meta.LastError = err.Error()
 		_ = SaveSubscriptionMeta(metaPath, meta)
 		return false, meta, err
-	}
-	if strings.TrimSpace(prev.ETag) != "" {
-		req.Header.Set("If-None-Match", prev.ETag)
-	}
-	if strings.TrimSpace(prev.LastModified) != "" {
-		req.Header.Set("If-Modified-Since", prev.LastModified)
 	}
 
 	resp, err := client.Do(req)
@@ -295,21 +315,43 @@ func SyncSubscriptionIfDue(ctx context.Context, rl config.RuleListConfig, opts S
 		_ = SaveSubscriptionMeta(metaPath, meta)
 		return false, meta, err
 	}
-	defer resp.Body.Close()
-
 	meta.CheckedAt = now.Unix()
 
+	// 304 has no body: ensure local cache is usable; otherwise retry once without conditional headers.
 	if resp.StatusCode == http.StatusNotModified {
-		meta.LastError = ""
-		_ = SaveSubscriptionMeta(metaPath, meta)
-		return false, meta, nil
+		_ = resp.Body.Close()
+		if _, statErr := os.Stat(rulesPath); statErr != nil {
+			req2, reqErr := makeReq(false)
+			if reqErr != nil {
+				meta.LastError = reqErr.Error()
+				_ = SaveSubscriptionMeta(metaPath, meta)
+				return false, meta, reqErr
+			}
+			resp2, err2 := client.Do(req2)
+			if err2 != nil {
+				meta.LastError = err2.Error()
+				_ = SaveSubscriptionMeta(metaPath, meta)
+				return false, meta, err2
+			}
+			resp = resp2
+		} else {
+			// Cache exists: just update check time; keep existing fingerprint.
+			meta.LastError = ""
+			_ = SaveSubscriptionMeta(metaPath, meta)
+			return false, meta, nil
+		}
 	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		err := fmt.Errorf("订阅拉取失败：HTTP %d", resp.StatusCode)
 		meta.LastError = err.Error()
 		_ = SaveSubscriptionMeta(metaPath, meta)
 		return false, meta, err
 	}
+
+	respETag := strings.TrimSpace(resp.Header.Get("ETag"))
+	respLastModified := strings.TrimSpace(resp.Header.Get("Last-Modified"))
 
 	body, err := readAllLimited(resp.Body, maxBytes)
 	if err != nil {
@@ -320,61 +362,9 @@ func SyncSubscriptionIfDue(ctx context.Context, rl config.RuleListConfig, opts S
 
 	sum := sha256.Sum256(body)
 	sumHex := hex.EncodeToString(sum[:])
-	meta.VerifiedSHA256 = sumHex
 	meta.Bytes = len(body)
-	meta.ETag = strings.TrimSpace(resp.Header.Get("ETag"))
-	meta.LastModified = strings.TrimSpace(resp.Header.Get("Last-Modified"))
-	meta.VerifiedSig = false
-	meta.VerifiedHash = false
 
-	// 固定 SHA256 校验（适合“锁定版本”）
-	if wantHash {
-		exp := normalizeHexHash(rl.SHA256)
-		if exp == "" {
-			err := fmt.Errorf("无效 sha256（需要 64 位 hex）")
-			meta.LastError = err.Error()
-			_ = SaveSubscriptionMeta(metaPath, meta)
-			return false, meta, err
-		}
-		if !strings.EqualFold(exp, sumHex) {
-			err := fmt.Errorf("sha256 校验失败：期望 %s，实际 %s", exp, sumHex)
-			meta.LastError = err.Error()
-			_ = SaveSubscriptionMeta(metaPath, meta)
-			return false, meta, err
-		}
-		meta.VerifiedHash = true
-	}
-
-	// 签名校验（适合“可自动更新的订阅”）
-	if wantSig {
-		pub, err := parseEd25519PublicKey(rl.PubKey)
-		if err != nil {
-			meta.LastError = err.Error()
-			_ = SaveSubscriptionMeta(metaPath, meta)
-			return false, meta, err
-		}
-		sigRaw, err := fetchSmall(ctx, client, meta.SigURL, 8*1024)
-		if err != nil {
-			meta.LastError = err.Error()
-			_ = SaveSubscriptionMeta(metaPath, meta)
-			return false, meta, err
-		}
-		sig, err := parseEd25519Signature(sigRaw)
-		if err != nil {
-			meta.LastError = err.Error()
-			_ = SaveSubscriptionMeta(metaPath, meta)
-			return false, meta, err
-		}
-		if !ed25519.Verify(pub, body, sig) {
-			err := fmt.Errorf("签名校验失败")
-			meta.LastError = err.Error()
-			_ = SaveSubscriptionMeta(metaPath, meta)
-			return false, meta, err
-		}
-		meta.VerifiedSig = true
-	}
-
-	// 语法校验：提前解析（含 regex 编译），避免“更新成功但不生效”的困惑。
+	// Syntax validation: parse (including regex compilation) to avoid "updated successfully but not effective" confusion.
 	if _, err := rulelist.Parse(bytes.NewReader(body), rulelist.ParseOptions{
 		Name:     strings.TrimSpace(rl.Name),
 		Priority: rl.Priority,
@@ -384,8 +374,17 @@ func SyncSubscriptionIfDue(ctx context.Context, rl config.RuleListConfig, opts S
 		return false, meta, err
 	}
 
-	// 若内容未变化，仅更新元数据即可。
-	if prevOK && strings.TrimSpace(prev.VerifiedSHA256) != "" && strings.EqualFold(prev.VerifiedSHA256, sumHex) {
+	// At this point the content is accepted: persist the fingerprint and conditional request headers.
+	meta.ContentSHA256 = sumHex
+	if respETag != "" {
+		meta.ETag = respETag
+	}
+	if respLastModified != "" {
+		meta.LastModified = respLastModified
+	}
+
+	// If content is unchanged, update metadata only.
+	if prevOK && strings.TrimSpace(prev.ContentSHA256) != "" && strings.EqualFold(prev.ContentSHA256, sumHex) {
 		meta.UpdatedAt = prev.UpdatedAt
 		meta.LastError = ""
 		_ = SaveSubscriptionMeta(metaPath, meta)
@@ -402,24 +401,6 @@ func SyncSubscriptionIfDue(ctx context.Context, rl config.RuleListConfig, opts S
 	meta.LastError = ""
 	_ = SaveSubscriptionMeta(metaPath, meta)
 	return true, meta, nil
-}
-
-func normalizeHexHash(s string) string {
-	v := strings.ToLower(strings.TrimSpace(s))
-	if strings.HasPrefix(v, "sha256:") {
-		v = strings.TrimSpace(strings.TrimPrefix(v, "sha256:"))
-	}
-	if len(v) != 64 {
-		return ""
-	}
-	for i := 0; i < len(v); i++ {
-		c := v[i]
-		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
-			continue
-		}
-		return ""
-	}
-	return v
 }
 
 func validateRemoteURL(raw string, allowHTTP bool) error {
@@ -444,75 +425,34 @@ func validateRemoteURL(raw string, allowHTTP bool) error {
 	}
 }
 
-func parseEd25519PublicKey(raw string) (ed25519.PublicKey, error) {
+func normalizeSubscriptionURL(raw string) string {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return nil, fmt.Errorf("pubkey 为空")
+		return ""
 	}
-	if strings.HasPrefix(strings.ToLower(s), "ed25519:") {
-		s = strings.TrimSpace(s[len("ed25519:"):])
+	u, err := url.Parse(s)
+	if err != nil || u == nil {
+		return s
 	}
 
-	// hex（64 字符）
-	if len(s) == 64 {
-		if b, err := hex.DecodeString(s); err == nil && len(b) == ed25519.PublicKeySize {
-			return ed25519.PublicKey(b), nil
+	// GitHub blob links return HTML rather than raw file content; convert to raw URLs automatically for usability.
+	// Example: https://github.com/<owner>/<repo>/blob/<ref>/<path>
+	if strings.EqualFold(u.Host, "github.com") {
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		if len(parts) >= 5 && parts[2] == "blob" {
+			owner := parts[0]
+			repo := parts[1]
+			ref := parts[3]
+			filePath := strings.Join(parts[4:], "/")
+			return (&url.URL{
+				Scheme: "https",
+				Host:   "raw.githubusercontent.com",
+				Path:   "/" + owner + "/" + repo + "/" + ref + "/" + filePath,
+			}).String()
 		}
 	}
 
-	// base64（标准/无 padding）
-	if b, err := base64.StdEncoding.DecodeString(s); err == nil && len(b) == ed25519.PublicKeySize {
-		return ed25519.PublicKey(b), nil
-	}
-	if b, err := base64.RawStdEncoding.DecodeString(s); err == nil && len(b) == ed25519.PublicKeySize {
-		return ed25519.PublicKey(b), nil
-	}
-	return nil, fmt.Errorf("无效 pubkey：需要 ed25519 公钥（base64/hex）")
-}
-
-func parseEd25519Signature(raw []byte) ([]byte, error) {
-	b := bytes.TrimSpace(raw)
-	if len(b) == 0 {
-		return nil, fmt.Errorf("签名为空")
-	}
-
-	// raw bytes
-	if len(b) == ed25519.SignatureSize {
-		return append([]byte(nil), b...), nil
-	}
-
-	// 如果是文本（hex/base64），优先按 hex 再按 base64
-	if len(b) <= 2048 {
-		s := strings.TrimSpace(string(b))
-		if len(s) == 128 {
-			if out, err := hex.DecodeString(s); err == nil && len(out) == ed25519.SignatureSize {
-				return out, nil
-			}
-		}
-		if out, err := base64.StdEncoding.DecodeString(s); err == nil && len(out) == ed25519.SignatureSize {
-			return out, nil
-		}
-		if out, err := base64.RawStdEncoding.DecodeString(s); err == nil && len(out) == ed25519.SignatureSize {
-			return out, nil
-		}
-	}
-	return nil, fmt.Errorf("无效签名：需要 ed25519 签名（raw/base64/hex）")
-}
-
-func fetchSmall(ctx context.Context, client *http.Client, url string, limit int) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("拉取签名失败：HTTP %d", resp.StatusCode)
-	}
-	return readAllLimited(resp.Body, limit)
+	return s
 }
 
 func readAllLimited(r io.Reader, limit int) ([]byte, error) {
@@ -560,14 +500,14 @@ func writeFile0600(path string, r io.Reader) error {
 }
 
 func renameReplace(src, dst string) error {
-	// POSIX 上 os.Rename 会覆盖；Windows 上会失败，因此做一次兼容处理。
+	// On POSIX, os.Rename overwrites; on Windows it fails, so we do a compatibility fallback.
 	if err := os.Rename(src, dst); err == nil {
 		return nil
 	} else if runtime.GOOS == "windows" {
 		_ = os.Remove(dst)
 		return os.Rename(src, dst)
 	} else {
-		// 某些文件系统可能也不支持覆盖：尝试 remove 再 rename（不保证完全原子）。
+		// Some filesystems may not support overwrite either: try remove then rename (not fully atomic).
 		if _, statErr := os.Stat(dst); statErr == nil {
 			_ = os.Remove(dst)
 			return os.Rename(src, dst)

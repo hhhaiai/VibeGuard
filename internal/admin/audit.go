@@ -5,49 +5,50 @@ import (
 	"time"
 )
 
-// AuditMatch 表示一次请求中命中的敏感片段（用于管理端展示）。
+// AuditMatch represents a sensitive fragment hit in a request (for admin UI display).
 type AuditMatch struct {
 	Category    string `json:"category"`
 	Placeholder string `json:"placeholder"`
-	// Value 是“可展示值”：当启用隐私模式时为预览（打码/截断），否则为原文（同样会截断）。
+	// Value is the "display value": when privacy mode is enabled it is a preview (masked/truncated),
+	// otherwise it is the original (still truncated).
 	Value string `json:"value"`
-	// IsPreview 表示 Value 是否为预览（隐私模式下为 true）。
+	// IsPreview indicates whether Value is a preview (true in privacy mode).
 	IsPreview bool `json:"is_preview"`
-	// Length 表示命中原文长度（未截断前的长度），便于判断是否命中预期内容。
+	// Length is the length of the original hit (before truncation), useful for validating expected matches.
 	Length int `json:"length"`
-	// Truncated 表示是否因过长而被截断。
+	// Truncated indicates whether Value was truncated due to length.
 	Truncated bool `json:"truncated"`
 }
 
-// AuditEvent 表示一次代理请求的审计记录（用于“是否命中脱敏规则”的可视化判断）。
+// AuditEvent represents an audit record for a proxy request (used to visualize whether redaction rules were hit).
 type AuditEvent struct {
 	ID int64 `json:"id"`
-	// Time 为服务器时间（RFC3339），用于排序与排查。
+	// Time is the server time (RFC3339) for sorting and debugging.
 	Time time.Time `json:"time"`
 
 	Host        string `json:"host"`
 	Method      string `json:"method"`
 	Path        string `json:"path"`
 	ContentType string `json:"content_type"`
-	// ContentEncoding 为请求体的 Content-Encoding（空表示未压缩/未知）。
+	// ContentEncoding is the request body's Content-Encoding (empty means uncompressed/unknown).
 	ContentEncoding string `json:"content_encoding,omitempty"`
 
-	// Attempted 表示本次请求是否进入“可脱敏文本内容”的扫描流程。
+	// Attempted indicates whether this request entered the "redactable text body" scanning flow.
 	Attempted bool `json:"attempted"`
-	// RedactedCount 表示命中并替换的次数（matches 可能会被截断显示，但 count 为真实次数）。
+	// RedactedCount is the number of replacements performed (matches may be truncated for display, but the count is accurate).
 	RedactedCount int          `json:"redacted_count"`
 	Matches       []AuditMatch `json:"matches"`
 
-	// Note 用于解释未扫描/跳过原因（例如：no_body / not_text / too_large / read_error）。
+	// Note explains why scanning was skipped (e.g. no_body / not_text / too_large / read_error).
 	Note string `json:"note,omitempty"`
 
-	// ResponseStatus 为上游响应状态码（若无响应则为 0）。
+	// ResponseStatus is the upstream response status code (0 if no response).
 	ResponseStatus int `json:"response_status,omitempty"`
-	// ResponseContentType 为上游响应的 Content-Type（空表示未知/无响应）。
+	// ResponseContentType is the upstream response Content-Type (empty means unknown/no response).
 	ResponseContentType string `json:"response_content_type,omitempty"`
-	// RestoreApplied 表示响应侧是否尝试过占位符还原（仅对 JSON/SSE 等文本响应）。
+	// RestoreApplied indicates whether placeholder restore was attempted on the response side (text responses like JSON/SSE).
 	RestoreApplied bool `json:"restore_applied,omitempty"`
-	// RestoredCount 表示响应中还原的占位符数量（粗略统计：匹配到的占位符个数）。
+	// RestoredCount is the number of placeholders restored in the response (rough count: matched placeholder tokens).
 	RestoredCount int `json:"restored_count,omitempty"`
 }
 
@@ -83,7 +84,7 @@ func (s *AuditStore) Add(ev AuditEvent) AuditEvent {
 
 	s.events = append(s.events, ev)
 	if len(s.events) > s.max {
-		// 丢弃最旧的记录
+		// Drop the oldest records.
 		s.events = append([]AuditEvent(nil), s.events[len(s.events)-s.max:]...)
 	}
 
@@ -91,11 +92,27 @@ func (s *AuditStore) Add(ev AuditEvent) AuditEvent {
 		select {
 		case ch <- ev:
 		default:
-			// 慢客户端：丢弃以避免阻塞代理线程
+			// Slow clients: drop to avoid blocking the proxy goroutine.
 		}
 	}
 
 	return ev
+}
+
+// BumpNextID raises nextID to at least min (never decreases).
+// Used after enabling persistence so in-memory IDs continue from the persisted max ID, avoiding conflicts.
+func (s *AuditStore) BumpNextID(min int64) {
+	if s == nil {
+		return
+	}
+	if min <= 0 {
+		return
+	}
+	s.mu.Lock()
+	if min > s.nextID {
+		s.nextID = min
+	}
+	s.mu.Unlock()
 }
 
 // Update finds an event by ID and mutates it in-place.

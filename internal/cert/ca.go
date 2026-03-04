@@ -167,14 +167,14 @@ func (ca *CA) KeyPath(dataDir string) string {
 	return filepath.Join(dataDir, caKeyName)
 }
 
-// DeriveStorageKey 派生一个用于“本机落盘加密”的对称密钥（32 字节）。
+// DeriveStorageKey derives a symmetric key (32 bytes) for local "at-rest encryption".
 //
-// 用途示例：
-// - 会话映射 WAL
-// - 配置文件中的敏感匹配值（关键词）落盘加密
+// Example uses:
+// - session mapping WAL
+// - encrypting sensitive pattern values (keywords) in the config file at rest
 //
-// 注意：
-// - 该密钥派生自 CA 私钥；一旦 regenerate/丢失 CA 私钥，将无法解密旧数据。
+// Note:
+// - the key is derived from the CA private key; if the CA private key is regenerated/lost, old data can no longer be decrypted.
 func (ca *CA) DeriveStorageKey() ([]byte, error) {
 	ca.mu.RLock()
 	defer ca.mu.RUnlock()
@@ -187,10 +187,10 @@ func (ca *CA) DeriveStorageKey() ([]byte, error) {
 	return out, nil
 }
 
-// DerivePlaceholderKey 派生一个用于“确定性占位符生成”的对称密钥（32 字节）。
+// DerivePlaceholderKey derives a symmetric key (32 bytes) for deterministic placeholder generation.
 //
-// 该密钥用于在“跨进程稳定占位符”模式下，生成稳定的占位符 token。
-// 为避免与其他用途（WAL/配置加密）复用同一 key，这里基于 DeriveStorageKey 做一次域隔离派生。
+// This key is used to generate stable placeholder tokens in "deterministic placeholders" mode.
+// To avoid reusing the same key for other purposes (WAL/config encryption), this performs domain separation on top of DeriveStorageKey.
 func (ca *CA) DerivePlaceholderKey() ([]byte, error) {
 	base, err := ca.DeriveStorageKey()
 	if err != nil {

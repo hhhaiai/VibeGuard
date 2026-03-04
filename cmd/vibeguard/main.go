@@ -21,9 +21,11 @@ import (
 
 	"github.com/inkdust2021/vibeguard/internal/cert"
 	"github.com/inkdust2021/vibeguard/internal/config"
+	"github.com/inkdust2021/vibeguard/internal/defaultrules"
 	"github.com/inkdust2021/vibeguard/internal/log"
 	"github.com/inkdust2021/vibeguard/internal/proxy"
 	"github.com/inkdust2021/vibeguard/internal/redact"
+	"github.com/inkdust2021/vibeguard/internal/rulelists"
 	"github.com/inkdust2021/vibeguard/internal/session"
 	"github.com/inkdust2021/vibeguard/internal/version"
 )
@@ -233,7 +235,7 @@ func newAssistantProxyCmd(exeName, displayName string) *cobra.Command {
 func runStart(cmd *cobra.Command, args []string) error {
 	lang := uiLang()
 
-	// 若显式要求前台运行，或指定了非默认配置路径，则直接以前台模式启动。
+	// If explicitly requested to run in foreground, or a non-default config path is provided, run in foreground.
 	if startForeground || strings.TrimSpace(cfgFile) != "" {
 		if !startForeground && strings.TrimSpace(cfgFile) != "" {
 			fmt.Println(uiText(lang, "检测到 --config：将以前台模式启动（不会走后台服务）。", "Detected --config: starting in foreground (no background service)."))
@@ -251,7 +253,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// 服务不可用时，退化为“自带后台启动”：拉起一个前台子进程并脱离终端。
+	// If the service is unavailable, fall back to a self-managed background start:
+	// spawn a foreground child process and detach it from the terminal.
 	if derr := startDetachedProxyProcess(); derr == nil {
 		fmt.Println(uiText(lang, "已在后台启动代理进程。", "Proxy process started in background."))
 		fmt.Println(uiText(lang, "提示：如需开机自启后台运行，请运行 install.sh 并启用 --autostart。",
@@ -281,7 +284,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// 退化为 PID 停止（用于未安装系统服务、但通过 detached 模式后台运行的场景）。
+	// Fall back to PID-based stop (for cases where no system service is installed and we run detached in the background).
 	pid, perr := readProxyPid()
 	if perr != nil {
 		return fmt.Errorf(uiText(lang, "未检测到后台服务，且读取 PID 失败：%v", "No background service detected and failed to read PID: %v"), perr)
@@ -294,7 +297,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf(uiText(lang, "停止代理进程失败：%v", "Failed to stop proxy process: %v"), err)
 	}
 
-	// 等待端口关闭（尽量给出确定反馈）
+	// Wait for the port to close (try to provide deterministic feedback).
 	hostport, _ := proxyListenHostportForClient()
 	if hostport != "" {
 		waitForProxyDown(hostport, 2*time.Second)
@@ -347,7 +350,7 @@ func waitForProxyDown(hostport string, timeout time.Duration) {
 func runEnv(cmd *cobra.Command, args []string) error {
 	hostport, err := proxyListenHostportForClient()
 	if err != nil || strings.TrimSpace(hostport) == "" {
-		// 配置缺失时也给出一个可用默认值（便于“先连上代理再 init”）
+		// Provide a usable default even when config is missing (helps "connect to the proxy first, then run init").
 		hostport = "127.0.0.1:28657"
 	}
 
@@ -368,7 +371,7 @@ func runEnv(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// env 输出需要可被 eval/Invoke-Expression 安全执行：只写 stdout，不掺杂其他提示文本。
+	// The env output must be safe to eval/Invoke-Expression: write to stdout only, no extra hints/messages.
 	_, _ = io.WriteString(cmd.OutOrStdout(), out)
 
 	return nil
@@ -429,7 +432,7 @@ func formatProxyEnv(shell, proxyURL, noProxy string) (string, error) {
 			proxyURL, proxyURL, proxyURL, proxyURL, noProxy, noProxy,
 		), nil
 	case "powershell", "pwsh", "ps":
-		// PowerShell 环境变量对大小写不敏感，这里同时设置大小写版本，兼容更多工具。
+		// PowerShell env vars are case-insensitive; set both cases to maximize compatibility.
 		return fmt.Sprintf(
 			"$env:HTTPS_PROXY=%q\n$env:HTTP_PROXY=%q\n$env:https_proxy=%q\n$env:http_proxy=%q\n$env:NO_PROXY=%q\n$env:no_proxy=%q\n",
 			proxyURL, proxyURL, proxyURL, proxyURL, noProxy, noProxy,
@@ -471,7 +474,7 @@ func runWithProxy(cmd *cobra.Command, args []string) error {
 	}
 
 	if runtime.GOOS != "windows" {
-		// 直接 exec：更适合交互式 TUI（信号/TTY 更自然）
+		// Use direct exec: better for interactive TUIs (signals/TTY behave more naturally).
 		return syscall.Exec(path, append([]string{target}, targetArgs...), childEnv)
 	}
 
@@ -501,12 +504,12 @@ func withExtraCAEnv(base []string, caCertPath string) []string {
 	if envHasKey(base, "NODE_EXTRA_CA_CERTS") {
 		return base
 	}
-	// Claude Code（Bun）会读取 NODE_EXTRA_CA_CERTS；Node.js 也支持该变量。
+	// Claude Code (Bun) reads NODE_EXTRA_CA_CERTS; Node.js also supports it.
 	return append(base, "NODE_EXTRA_CA_CERTS="+caCertPath)
 }
 
 func withProxyEnv(base []string, proxyURL, noProxy string) []string {
-	// 简单覆盖：同名变量以最后一次出现为准。
+	// Simple override: for duplicate keys, the last one wins.
 	out := make([]string, 0, len(base)+6)
 	for _, kv := range base {
 		k := kv
@@ -601,9 +604,9 @@ func stopProcessByPID(pid int) error {
 		return p.Kill()
 	}
 
-	// 尽量优雅退出
+	// Try to exit gracefully.
 	if err := p.Signal(syscall.SIGTERM); err != nil {
-		// 可能进程已退出，直接视为成功
+		// The process may already have exited; treat as success.
 		if !processAlive(pid) {
 			return nil
 		}
@@ -617,7 +620,7 @@ func stopProcessByPID(pid int) error {
 		time.Sleep(120 * time.Millisecond)
 	}
 
-	// 超时仍未退出：强制结束
+	// Still running after timeout: force kill.
 	if err := p.Kill(); err != nil {
 		if !processAlive(pid) {
 			return nil
@@ -636,7 +639,7 @@ func processAlive(pid int) bool {
 		return false
 	}
 	if runtime.GOOS == "windows" {
-		// Windows 下无法可靠 signal 0；这里保守返回 true，让上层用其他方式判断（端口等）。
+		// On Windows, signal 0 is not reliable; conservatively return true and let callers decide via other signals (e.g. port checks).
 		return true
 	}
 	return p.Signal(syscall.Signal(0)) == nil
@@ -710,7 +713,7 @@ func tryStartBackgroundService() (bool, error) {
 		}
 		return true, nil
 	case "windows":
-		// Windows 自启服务由安装脚本创建（计划任务名固定为 VibeGuard）。
+		// Windows autostart is created by the installer (Scheduled Task name is fixed to "VibeGuard").
 		if _, err := exec.LookPath("schtasks"); err != nil {
 			return false, nil
 		}
@@ -784,7 +787,7 @@ func startLaunchAgent(plistPath string) error {
 	domain := fmt.Sprintf("gui/%d", uid)
 	svc := domain + "/com.vibeguard.proxy"
 
-	// 尽量幂等：先尝试移除旧的注册，再 bootstrap/kickstart。
+	// Keep it idempotent: try removing existing registrations before bootstrap/kickstart.
 	_ = exec.Command("launchctl", "bootout", domain, plistPath).Run()
 	if out, err := exec.Command("launchctl", "bootstrap", domain, plistPath).CombinedOutput(); err != nil {
 		return fmt.Errorf("launchctl bootstrap failed: %w - %s", err, strings.TrimSpace(string(out)))
@@ -803,7 +806,7 @@ func stopLaunchAgent(plistPath string) error {
 	out, err := exec.Command("launchctl", "bootout", domain, plistPath).CombinedOutput()
 	if err != nil {
 		s := strings.ToLower(strings.TrimSpace(string(out)))
-		// 尽量幂等：未加载时 bootout 可能报错，视为已停止。
+		// Keep it idempotent: bootout may error if not loaded; treat as already stopped.
 		if strings.Contains(s, "no such process") || strings.Contains(s, "not loaded") || strings.Contains(s, "could not find") {
 			return nil
 		}
@@ -865,12 +868,27 @@ func runProxy(cmd *cobra.Command, args []string) error {
 
 	c := cfg.Get()
 
+	// Pre-warm the local cache for the default rules subscription (so offline start works immediately);
+	// later the subscription manager updates it.
+	for _, rl := range c.Patterns.RuleLists {
+		if strings.TrimSpace(rl.ID) != "vibeguard-default" {
+			continue
+		}
+		if strings.TrimSpace(rl.URL) == "" {
+			continue
+		}
+		if p, ok := rulelists.SubscriptionRulesPath(rl); ok && strings.TrimSpace(p) != "" {
+			defaultrules.EnsureInstalled(p)
+		}
+		break
+	}
+
 	// Setup logging
 	if err := log.Setup(c.Log.File, c.Log.Level); err != nil {
 		return fmt.Errorf("failed to setup logging: %w", err)
 	}
 
-	// 记录 PID，方便 vibeguard stop 定位并结束后台进程。
+	// Record PID so `vibeguard stop` can locate and stop the background process.
 	pid := os.Getpid()
 	if err := os.MkdirAll(config.GetConfigDir(), 0o755); err == nil {
 		_ = os.WriteFile(proxyPidFilePath(), []byte(strconv.Itoa(pid)+"\n"), 0o644)
@@ -893,13 +911,15 @@ func runProxy(cmd *cobra.Command, args []string) error {
 		slog.Warn("CA 证书未被系统信任：启用 MITM 拦截时客户端可能报 TLS 错误；请先运行 vibeguard trust（或 vibeguard trust --mode system）", "cert_path", caCertPath)
 	}
 
-	// 用 CA 私钥派生“本机落盘加密”密钥：用于加密配置中的关键词/排除项（落盘不出现明文）。
+	// Derive a local "at-rest encryption" key from the CA private key:
+	// used to encrypt keywords/excludes in config so plaintext is not written to disk.
 	if key, err := ca.DeriveStorageKey(); err != nil {
 		return fmt.Errorf("failed to derive storage key: %w", err)
 	} else if err := cfg.SetPatternEncryptionKey(key); err != nil {
 		return fmt.Errorf("failed to configure pattern encryption: %w", err)
 	}
-	// 重新加载一次配置，以便把已落盘的密文解密为明文，并确保后续保存会写回密文。
+	// Reload config once to decrypt persisted ciphertext into plaintext in memory,
+	// and ensure future saves write ciphertext back to disk.
 	if err := cfg.Load(); err != nil {
 		return fmt.Errorf("failed to reload config with pattern decryption: %w", err)
 	}
@@ -909,7 +929,7 @@ func runProxy(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create proxy: %w", err)
 	}
-	// 启用配置热更新：管理页添加/删除匹配规则后，无需重启即可生效。
+	// Enable config hot-reload: changes from the admin UI take effect without restart.
 	if err := cfg.Watch(srv.ReloadFromConfig); err != nil {
 		slog.Warn("Failed to enable config hot-reload; restart may be required after config changes", "error", err)
 	}
@@ -994,14 +1014,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Print(uiText(lang, "生成 CA 证书？(Y/n): ", "Generate CA certificate? (Y/n): "))
 	genCAAnswer, _ := reader.ReadString('\n')
 	genCAAnswer = strings.TrimSpace(genCAAnswer)
-	genCA := !uiIsNo(lang, genCAAnswer) // 默认是
+	genCA := !uiIsNo(lang, genCAAnswer) // default: yes
 
-	cfgTemplateZh := `# VibeGuard 配置文件
-proxy:
-  listen: %s
-  placeholder_prefix: "__VG_"
-  # HTTPS 拦截模式：global（默认，全局 MITM）或 targets（仅拦截下方 targets）
-  intercept_mode: global
+	cfgTemplateZh := `# VibeGuard Configuration
+	proxy:
+	  listen: %s
+	  placeholder_prefix: "__VG_"
+	  # HTTPS intercept mode: global (default, intercept all) or targets (only intercept targets below)
+	  intercept_mode: global
 
 session:
   ttl: %s
@@ -1011,8 +1031,8 @@ log:
   file: %s
   level: info
 
-# 需要拦截的目标域名（AI API 端点）
-targets:
+	# Target hosts to intercept (AI API endpoints)
+	targets:
   - host: api.anthropic.com
     enabled: true
   - host: api.openai.com
@@ -1022,11 +1042,11 @@ targets:
   - host: generativelanguage.googleapis.com
     enabled: true
 
-# 敏感信息匹配规则
-patterns:
-  keywords: []
-  exclude: []
-`
+	# Sensitive data matching rules
+	patterns:
+	  keywords: []
+	  exclude: []
+	`
 
 	cfgTemplateEn := `# VibeGuard Configuration
 proxy:
@@ -1173,7 +1193,7 @@ func runTest(cmd *cobra.Command, args []string) error {
 	sess := session.NewManager(0, 1000)
 	eng := redact.NewEngine(sess, "__VG_")
 
-	// 仅关键词：只替换“关键词本身”，避免正则导致的过宽匹配。
+	// Keywords only: replace the keyword substring itself to avoid overly-broad regex-style matches.
 	eng.AddKeyword(pattern, "TEST")
 
 	// Perform redaction

@@ -10,15 +10,15 @@ import (
 	"strings"
 )
 
-// encryptedPatternPrefix 是“加密后的匹配值”在配置文件中的前缀标识。
+// encryptedPatternPrefix is the prefix marker for "encrypted pattern values" in the config file.
 //
-// 设计目标：
-// - 配置文件落盘不出现明文关键词（减少误提交/拷贝泄露风险）
-// - 进程内仍使用明文进行匹配；管理面板也显示明文
+// Design goals:
+// - avoid writing plaintext keywords to disk (reduce accidental commits/copy leaks)
+// - still match using plaintext in-process; the admin UI also shows plaintext
 //
-// 注意：
-// - 该机制只保护“配置文件静态内容”；能访问管理面板/进程内存的人仍可看到明文
-// - 解密依赖运行时注入的密钥（由上层从 CA 私钥派生）
+// Notes:
+// - this only protects the "static config file contents"; anyone who can access the admin UI or process memory can still see plaintext
+// - decryption depends on a runtime-injected key (derived from the CA private key by the caller)
 const encryptedPatternPrefix = "__VG_ENC_V1__:"
 
 type patternCrypto struct {
@@ -82,10 +82,11 @@ func (c *patternCrypto) decryptMaybeEncrypted(s string) (plain string, wasEncryp
 	return string(out), true, nil
 }
 
-// SetPatternEncryptionKey 启用“匹配值落盘加密”能力。
-// key32 必须为 32 字节（AES-256）。
+// SetPatternEncryptionKey enables "at-rest encryption" for persisted pattern values.
+// key32 must be 32 bytes (AES-256).
 //
-// 注意：该方法只配置加密器，不会自动重写配置文件；调用方通常需要随后执行一次 Load() 以解密已加载的配置。
+// Note: this only configures the encryptor and does not rewrite the config file automatically;
+// callers typically run Load() again afterwards to decrypt an already-loaded config.
 func (m *Manager) SetPatternEncryptionKey(key32 []byte) error {
 	if m == nil {
 		return fmt.Errorf("config manager is nil")
@@ -135,7 +136,8 @@ func (m *Manager) encryptPatternsForSave(cfg Config) (Config, error) {
 		return cfg, nil
 	}
 
-	// 注意：cfg 是浅拷贝，内部 slice 与原对象共享底层数组；必须 deep copy 后再改值，避免污染运行时明文配置。
+	// Note: cfg is a shallow copy and its slices share underlying arrays with the original;
+	// deep-copy before mutating to avoid polluting the in-memory plaintext config.
 	if len(cfg.Patterns.Keywords) > 0 {
 		kw := append([]KeywordPattern(nil), cfg.Patterns.Keywords...)
 		for i := range kw {

@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-// DebugStore 用于“抓包调试”：保存完整请求/响应（含前后对比）。
+// DebugStore is used for capture-style debugging: it keeps full request/response snapshots (including before/after).
 //
-// 重要安全约束：
-// - 仅保存在内存中，不落盘
-// - 默认关闭，需在管理面板中显式开启
-// - 仅用于本机调试；仍会对敏感 header 做打码（可配置关闭）
+// Security constraints:
+// - in-memory only; never persisted to disk
+// - disabled by default; must be explicitly enabled in the admin UI
+// - local debugging only; sensitive headers are still masked (configurable)
 type DebugStore struct {
 	mu sync.RWMutex
 
@@ -145,7 +145,7 @@ func (s *DebugStore) Update(enabled *bool, maxBodyBytes *int, maxEvents *int, ma
 		s.maskHeaders.Store(*maskHeaders)
 	}
 	if maxBodyBytes != nil {
-		// 过小会导致“看不到关键信息”；过大容易撑爆内存。
+		// Too small hides useful details; too large risks memory blow-ups.
 		v := clampInt(*maxBodyBytes, 4*1024, 20*1024*1024) // 4KB ~ 20MB
 		s.maxBodyBytes.Store(int64(v))
 	}
@@ -283,7 +283,7 @@ func (s *DebugStore) UpsertRequest(id int64, c DebugRequestCapture) {
 type DebugResponseCapture struct {
 	ContentType string
 
-	// status/code 写在 DebugHTTP 上（ResponseStatus），避免额外结构。
+	// Keep status/code on DebugHTTP (ResponseStatus) to avoid extra nesting.
 	Status int
 
 	HeadersOriginal  http.Header
@@ -350,20 +350,20 @@ func cloneHeader(h http.Header) http.Header {
 	return h.Clone()
 }
 
-// MaskSensitiveHeaders 会对常见敏感 header（如 Authorization/Cookie/API Key）做打码。
-// 该函数用于调试抓包展示，避免把 token 等信息直接暴露在管理面板中。
+// MaskSensitiveHeaders masks common sensitive headers (e.g. Authorization/Cookie/API keys).
+// This is used for debug capture display to avoid exposing tokens directly in the admin UI.
 func MaskSensitiveHeaders(h http.Header) http.Header {
 	if h == nil {
 		return nil
 	}
 
-	// 统一 canonical key，避免因大小写差异导致 Get()/展示不一致。
-	// 同时也避免同一 header 因大小写不同而出现重复项。
+	// Canonicalize keys to avoid case-related Get()/display inconsistencies
+	// and to prevent duplicates that differ only by case.
 	out := make(http.Header, len(h))
 	for k, vs := range h {
 		ck := textproto.CanonicalMIMEHeaderKey(k)
 		if len(vs) == 0 {
-			// 保持空值语义
+			// Preserve empty-value semantics.
 			if _, ok := out[ck]; !ok {
 				out[ck] = nil
 			}
@@ -409,11 +409,11 @@ func isSensitiveHeaderKey(lowerKey string) bool {
 		"x-anthropic-api-key":
 		return true
 	default:
-		// 避免把所有 header 都过度打码：仅在 header 名称的“分段”（用 '-' 分隔）明确包含 token/secret 时才打码。
-		// 例如：
-		// - My-Token ✅
-		// - X-Secret-Key ✅
-		// - X-NotSecret ❌（不应误伤）
+		// Avoid over-masking: only mask when a header name segment (split by '-') clearly contains token/secret.
+		// Examples:
+		// - My-Token (mask)
+		// - X-Secret-Key (mask)
+		// - X-NotSecret (do not mask)
 		parts := strings.Split(lowerKey, "-")
 		for _, p := range parts {
 			p = strings.TrimSpace(p)

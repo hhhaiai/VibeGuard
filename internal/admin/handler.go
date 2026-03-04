@@ -29,13 +29,15 @@ func (a *Admin) Handler() http.Handler {
 	mux.HandleFunc("/manager/api/rule_lists/upload", a.handleRuleListsUpload)
 	mux.HandleFunc("/manager/api/rule_lists/subscribe", a.handleRuleListsSubscribe)
 	mux.HandleFunc("/manager/api/rule_lists/", a.handleRuleListsItem)
-	mux.HandleFunc("/manager/api/nlp", a.handleNLP)
+	// NER: named entity recognition
+	mux.HandleFunc("/manager/api/ner", a.handleNER)
 	mux.HandleFunc("/manager/api/sessions", a.handleSessions)
 	mux.HandleFunc("/manager/api/certificates", a.handleCertificates)
 	mux.HandleFunc("/manager/api/certificates/trust", a.handleCertTrust)
 	mux.HandleFunc("/manager/api/certificates/regenerate", a.handleCertRegenerate)
 	mux.HandleFunc("/manager/api/audit", a.handleAudit)
 	mux.HandleFunc("/manager/api/audit/privacy", a.handleAuditPrivacy)
+	mux.HandleFunc("/manager/api/audit/persistence", a.handleAuditPersistence)
 	mux.HandleFunc("/manager/api/audit/stream", a.handleAuditStream)
 	mux.HandleFunc("/manager/api/logs", a.handleLogs)
 	mux.HandleFunc("/manager/api/logs/stream", a.handleLogsStream)
@@ -54,8 +56,8 @@ func (a *Admin) Handler() http.Handler {
 
 	// Serve static files at /manager/*
 	mux.Handle("/manager/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 管理面板属于本地管理工具，优先避免浏览器缓存导致“更新后仍看到旧 UI”的问题。
-		// 这里对 /manager/ 下的资源统一禁用缓存。
+		// The admin UI is a local management tool; avoid browser caching issues where an old UI persists after updates.
+		// Disable caching for all /manager/ resources.
 		w.Header().Set("Cache-Control", "no-store")
 
 		// SPA fallback - serve index.html for non-file routes
@@ -75,7 +77,7 @@ func (a *Admin) Handler() http.Handler {
 	// Add logging middleware
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		// 管理端鉴权：所有 /manager/api/* 默认需要先登录（首访未设置密码则先走 setup）。
+		// Admin auth: all /manager/api/* endpoints require login by default (if no password is set yet, go through setup).
 		if strings.HasPrefix(r.URL.Path, "/manager/api/") && !isManagerPublicAPI(r.URL.Path) {
 			if a == nil || a.auth == nil {
 				http.Error(w, "Admin auth not initialized", http.StatusInternalServerError)

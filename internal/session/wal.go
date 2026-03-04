@@ -212,9 +212,9 @@ func (w *WAL) RestoreInto(m *Manager) error {
 		if time.Since(entry.CreatedAt) > m.ttl {
 			continue
 		}
-		// 这里必须保留 WAL 中的 CreatedAt：
-		// - 否则重启后会把 mapping 的 createdAt 重置为 time.Now()，导致 TTL 被“续命”
-		// - 同时避免在恢复过程中再次 append WAL（即便调用方已提前 AttachWAL）
+		// Preserve CreatedAt from the WAL:
+		// - otherwise a restart would reset createdAt to time.Now(), effectively extending TTL
+		// - also avoid appending to the WAL during restore (even if the caller already called AttachWAL)
 		m.register(entry.Placeholder, entry.Original, entry.CreatedAt, false)
 	}
 

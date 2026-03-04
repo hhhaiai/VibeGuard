@@ -119,9 +119,9 @@
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M3 11l6 6a2 2 0 002.828 0l7.586-7.586a2 2 0 000-2.828L13.828 2H7a4 4 0 00-4 4v5z"/></svg>
           <span data-i18n="nav.keywords">关键词列表</span>
         </a>
-        <a href="#/nlp" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-text mb-1" data-page="nlp">
+        <a href="#/ner" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-text mb-1" data-page="ner">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l1.2 3.6L17 8l-3.8 1.4L12 13l-1.2-3.6L7 8l3.8-1.4L12 3zM5 13l.9 2.7L9 17l-3.1 1.3L5 21l-.9-2.7L1 17l3.1-1.3L5 13zM19 13l.9 2.7L23 17l-3.1 1.3L19 21l-.9-2.7L15 17l3.1-1.3L19 13z"/></svg>
-          <span data-i18n="nav.nlp">NLP</span>
+          <span data-i18n="nav.ner">NER</span>
         </a>
         <a href="#/sessions" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-text mb-1" data-page="sessions">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
@@ -168,7 +168,7 @@ const i18n = {
 	    'nav.audit': '拦截记录',
 	    'nav.ruleLists': '规则列表',
 	    'nav.keywords': '关键词列表',
-	    'nav.nlp': 'NLP',
+	    'nav.ner': 'NER',
 	    'nav.sessions': '会话映射',
 	    'nav.certs': '证书管理',
 	    'nav.logs': '调试日志',
@@ -228,22 +228,15 @@ const i18n = {
     'ruleLists.subscribeTitle': '添加规则订阅',
     'ruleLists.url': '订阅 URL',
     'ruleLists.urlPlaceholder': 'https://example.com/list.vgrules',
-    'ruleLists.sigUrl': '签名 URL（推荐）',
-    'ruleLists.sigUrlPlaceholder': 'https://example.com/list.vgrules.sig',
-    'ruleLists.pubKey': '公钥（ed25519）',
-    'ruleLists.pubKeyPlaceholder': 'base64 或 64 位 hex',
-    'ruleLists.sha256': 'SHA-256（可选）',
-    'ruleLists.sha256Placeholder': '64 位 hex（固定版本用）',
     'ruleLists.updateInterval': '更新间隔',
     'ruleLists.updateIntervalPlaceholder': '例如 24h',
 	    'ruleLists.allowHTTP': '允许 HTTP（不推荐）',
 	    'ruleLists.urlRequired': '请填写订阅 URL',
-	    'ruleLists.verifyRequired': '订阅必须提供 sig_url+pubkey 或 sha256（至少一种）',
 	    'ruleLists.subscribeFailed': '订阅添加失败',
 	    'ruleLists.subscribed': '订阅已添加',
-	    'ruleLists.verifyOk': '已校验',
-	    'ruleLists.verifyPending': '未校验',
-	    'ruleLists.verifyFailed': '校验失败',
+	    'ruleLists.verifyOk': '同步正常',
+	    'ruleLists.verifyPending': '尚未同步',
+	    'ruleLists.verifyFailed': '同步失败',
     'ruleLists.kind.subscription': '订阅',
     'ruleLists.kind.local': '本地',
     'ruleLists.enabled': '已启用',
@@ -255,35 +248,33 @@ const i18n = {
     'ruleLists.updated': '规则列表已更新',
     'ruleLists.updateFailed': '规则列表更新失败',
     'ruleLists.deleteConfirm': '确定删除此规则列表？',
-    'ruleLists.deleted': '规则列表已删除',
-    'ruleLists.deleteFailed': '删除失败',
-    'ruleLists.deleteUnavailable': '缺少 ID，请在配置文件中移除',
-	    'nlp.title': '泛化实体识别（NLP）',
-	    'nlp.subtitle': '识别人名/组织/位置等（可与关键词同时使用）',
-	    'nlp.hint': '开启后会尝试识别文本中的实体并替换为占位符。启发式更保守；ONNX 需额外运行库与模型文件。模型路径留空时将优先尝试 ~/.vibeguard/models/ner。',
-	    'nlp.optionalNote': '提示：NLP 默认更偏英文；中文/多语言需自行配置 ONNX 模型路径。',
-	    'nlp.advanced': '高级设置',
-    'nlp.engine': '引擎',
-    'nlp.engine.heuristic': '启发式（内置）',
-    'nlp.engine.onnx': 'ONNX（需额外组件）',
-    'nlp.engine.onnxUnavailable': '当前构建未包含 ONNX 支持',
-    'nlp.modelPath': '模型路径',
-    'nlp.routeByLang': '按语言路由',
-    'nlp.routeByLangHint': '分别配置英文/中文模型路径；按需加载更省内存。',
-    'nlp.modelPathEn': '英文模型路径',
-    'nlp.modelPathZh': '中文模型路径',
-    'nlp.maxLoadedModels': '最大常驻模型数',
-    'nlp.maxLoadedModelsHint': '1 最省内存；2 语言切换更快。',
-    'nlp.minScore': '最小置信度',
-    'nlp.entities': '实体类型',
-    'nlp.atLeastOne': '请至少选择一种实体类型',
-    'nlp.entity.person': '人名',
-    'nlp.entity.org': '组织',
-    'nlp.entity.location': '位置',
-    'nlp.on': '已开启',
-    'nlp.off': '已关闭',
-    'nlp.updated': 'NLP 设置已更新',
-    'nlp.updateFailed': 'NLP 设置更新失败',
+	    'ruleLists.deleted': '规则列表已删除',
+	    'ruleLists.deleteFailed': '删除失败',
+	    'ruleLists.deleteUnavailable': '缺少 ID，请在配置文件中移除',
+	    'ner.title': '命名实体识别（NER）',
+	    'ner.subtitle': '通过 Presidio Analyzer 识别人名/组织/位置等（可与关键词同时使用）',
+	    'ner.hint': '开启后会调用外部 Presidio Analyzer 对文本做命名实体识别（NER），并将命中的实体替换为占位符。',
+	    'ner.optionalNote': '提示：VibeGuard 不内置 Presidio，请自行部署并在此处配置 API 地址。',
+	    'ner.advanced': '高级设置',
+	    'ner.presidioUrl': 'Presidio API',
+	    'ner.presidioUrlPlaceholder': 'http://127.0.0.1:5001',
+	    'ner.presidioUrlHint': '将自动调用 /analyze（支持填写带前缀路径）。',
+	    'ner.language': '语言',
+	    'ner.languagePlaceholder': 'en / zh / fr / ...',
+	    'ner.languageHint': '选择传给 Presidio 的语言代码（例如 en、zh、fr）。',
+	    'ner.languageCustom': '自定义...',
+	    'ner.languageCustomPlaceholder': '例如：en / zh / fr',
+	    'ner.minScore': '最小置信度',
+	    'ner.minScoreHint': '0 表示使用 Presidio 默认值。',
+    'ner.entities': '实体类型',
+    'ner.atLeastOne': '请至少选择一种实体类型',
+    'ner.entity.person': '人名',
+    'ner.entity.org': '组织',
+    'ner.entity.location': '位置',
+    'ner.on': '已开启',
+    'ner.off': '已关闭',
+    'ner.updated': 'NER 设置已更新',
+    'ner.updateFailed': 'NER 设置更新失败',
     'patterns.regex': '关键词列表',
     'patterns.add': '添加',
     'patterns.noRegex': '未配置关键词',
@@ -409,13 +400,23 @@ const i18n = {
     'audit.privacyOn': '隐私模式：开启（不显示原文）',
     'audit.privacyOff': '隐私模式：关闭（显示原文，注意风险）',
     'audit.privacyHint': '可在此处切换。提示：切换仅影响之后的新记录；为安全起见建议保持开启。',
-    'audit.privacyConfirmOff': '确定关闭隐私模式并显示原文？这可能在管理页暴露敏感信息。',
-    'audit.privacyUpdated': '隐私模式已更新',
-    'audit.privacyUpdateFailed': '更新失败',
-    'audit.empty': '暂无记录（用 Codex 发起一次请求试试）',
-    'audit.hit': '命中',
-    'audit.nohit': '未命中',
-    'audit.skipped': '未扫描',
+	    'audit.privacyConfirmOff': '确定关闭隐私模式并显示原文？这可能在管理页暴露敏感信息。',
+	    'audit.privacyUpdated': '隐私模式已更新',
+	    'audit.privacyUpdateFailed': '更新失败',
+	    'audit.persistOn': '审计落盘：已开启（SQLite）',
+	    'audit.persistOff': '审计落盘：已关闭（SQLite）',
+	    'audit.persistHint': '将审计记录写入本机 SQLite，便于排查与留存。注意：落盘会增加敏感信息驻留风险。',
+	    'audit.persistConfirmOn': '确定开启审计落盘（SQLite）？这会把审计记录写入磁盘。',
+	    'audit.persistConfirmOff': '确定关闭审计落盘（SQLite）？',
+	    'audit.persistNotAvailable': '审计落盘：当前版本不支持（请安装 Full 版）',
+	    'audit.persistUpdated': '审计落盘设置已更新',
+	    'audit.persistUpdateFailed': '更新失败',
+	    'audit.persistPath': '路径',
+	    'audit.persistRetention': '保留',
+	    'audit.empty': '暂无记录（用 Codex 发起一次请求试试）',
+	    'audit.hit': '命中',
+	    'audit.nohit': '未命中',
+	    'audit.skipped': '未扫描',
     'audit.note.no_body': '无请求体',
     'audit.note.not_text': '非文本内容',
     'audit.note.too_large': '请求体过大',
@@ -457,7 +458,7 @@ const i18n = {
 	    'nav.audit': 'Audit',
 	    'nav.ruleLists': 'Rule Lists',
 	    'nav.keywords': 'Keywords',
-	    'nav.nlp': 'NLP',
+	    'nav.ner': 'NER',
 	    'nav.sessions': 'Sessions',
 	    'nav.certs': 'Certificates',
 	    'nav.logs': 'Debug Logs',
@@ -517,22 +518,15 @@ const i18n = {
     'ruleLists.subscribeTitle': 'Add rule subscription',
     'ruleLists.url': 'Subscription URL',
     'ruleLists.urlPlaceholder': 'https://example.com/list.vgrules',
-    'ruleLists.sigUrl': 'Signature URL (recommended)',
-    'ruleLists.sigUrlPlaceholder': 'https://example.com/list.vgrules.sig',
-    'ruleLists.pubKey': 'Public key (ed25519)',
-    'ruleLists.pubKeyPlaceholder': 'base64 or 64-char hex',
-    'ruleLists.sha256': 'SHA-256 (optional)',
-    'ruleLists.sha256Placeholder': '64-char hex (pin a version)',
     'ruleLists.updateInterval': 'Update interval',
     'ruleLists.updateIntervalPlaceholder': 'e.g. 24h',
 	    'ruleLists.allowHTTP': 'Allow HTTP (unsafe)',
 	    'ruleLists.urlRequired': 'URL is required',
-	    'ruleLists.verifyRequired': 'Provide sig_url+pubkey or sha256 (at least one)',
 	    'ruleLists.subscribeFailed': 'Failed to add subscription',
 	    'ruleLists.subscribed': 'Subscription added',
-	    'ruleLists.verifyOk': 'Verified',
-	    'ruleLists.verifyPending': 'Unverified',
-	    'ruleLists.verifyFailed': 'Verification failed',
+	    'ruleLists.verifyOk': 'Synced',
+	    'ruleLists.verifyPending': 'Not synced',
+	    'ruleLists.verifyFailed': 'Sync failed',
     'ruleLists.kind.subscription': 'Subscription',
     'ruleLists.kind.local': 'Local',
     'ruleLists.enabled': 'Enabled',
@@ -544,35 +538,33 @@ const i18n = {
     'ruleLists.updated': 'Rule list updated',
     'ruleLists.updateFailed': 'Failed to update rule list',
     'ruleLists.deleteConfirm': 'Delete this rule list?',
-    'ruleLists.deleted': 'Rule list deleted',
-    'ruleLists.deleteFailed': 'Delete failed',
-    'ruleLists.deleteUnavailable': 'No ID; remove it in config',
-	    'nlp.title': 'Generic Entities (NLP)',
-	    'nlp.subtitle': 'Detect names/orgs/locations alongside keywords',
-	    'nlp.hint': 'When enabled, it detects selected entities and replaces them with placeholders. Heuristic is conservative; ONNX requires extra runtime and model files. If model path is empty, it will try ~/.vibeguard/models/ner first.',
-	    'nlp.optionalNote': 'Note: NLP is English-first by default; Chinese/multilingual requires configuring ONNX model paths.',
-	    'nlp.advanced': 'Advanced settings',
-    'nlp.engine': 'Engine',
-    'nlp.engine.heuristic': 'Heuristic (built-in)',
-    'nlp.engine.onnx': 'ONNX (extra required)',
-    'nlp.engine.onnxUnavailable': 'ONNX not available in this build',
-    'nlp.modelPath': 'Model path',
-    'nlp.routeByLang': 'Route by language',
-    'nlp.routeByLangHint': 'Use separate EN/ZH model paths; lazy load to save memory.',
-    'nlp.modelPathEn': 'English model path',
-    'nlp.modelPathZh': 'Chinese model path',
-    'nlp.maxLoadedModels': 'Max loaded models',
-    'nlp.maxLoadedModelsHint': '1 saves memory; 2 switches faster.',
-    'nlp.minScore': 'Min score',
-    'nlp.entities': 'Entities',
-    'nlp.atLeastOne': 'Select at least one entity',
-    'nlp.entity.person': 'Person',
-    'nlp.entity.org': 'Organization',
-    'nlp.entity.location': 'Location',
-    'nlp.on': 'Enabled',
-    'nlp.off': 'Disabled',
-    'nlp.updated': 'NLP settings updated',
-    'nlp.updateFailed': 'Failed to update NLP',
+	    'ruleLists.deleted': 'Rule list deleted',
+	    'ruleLists.deleteFailed': 'Delete failed',
+	    'ruleLists.deleteUnavailable': 'No ID; remove it in config',
+	    'ner.title': 'Named Entity Recognition (NER)',
+	    'ner.subtitle': 'Detect names/orgs/locations via Presidio Analyzer (works with keywords)',
+	    'ner.hint': 'When enabled, VibeGuard calls an external Presidio Analyzer to detect NER entities and replace them with placeholders.',
+	    'ner.optionalNote': 'Note: VibeGuard does not bundle Presidio. Deploy it yourself and configure the API URL here.',
+	    'ner.advanced': 'Advanced settings',
+	    'ner.presidioUrl': 'Presidio API',
+	    'ner.presidioUrlPlaceholder': 'http://127.0.0.1:5001',
+	    'ner.presidioUrlHint': 'It will call /analyze automatically (prefix paths are supported).',
+	    'ner.language': 'Language',
+	    'ner.languagePlaceholder': 'en / zh / fr / ...',
+	    'ner.languageHint': 'Language code sent to Presidio (e.g. en, zh, fr).',
+	    'ner.languageCustom': 'Custom...',
+	    'ner.languageCustomPlaceholder': 'e.g. en / zh / fr',
+	    'ner.minScore': 'Min score',
+	    'ner.minScoreHint': '0 uses Presidio default.',
+    'ner.entities': 'Entities',
+    'ner.atLeastOne': 'Select at least one entity',
+    'ner.entity.person': 'Person',
+    'ner.entity.org': 'Organization',
+    'ner.entity.location': 'Location',
+    'ner.on': 'Enabled',
+    'ner.off': 'Disabled',
+    'ner.updated': 'NER settings updated',
+    'ner.updateFailed': 'Failed to update NER',
     'patterns.regex': 'Keywords',
     'patterns.add': '+ Add',
     'patterns.noRegex': 'No keywords configured',
@@ -698,13 +690,23 @@ const i18n = {
     'audit.privacyOn': 'Privacy mode: ON (no originals)',
     'audit.privacyOff': 'Privacy mode: OFF (shows originals)',
     'audit.privacyHint': 'Toggle here. Note: it only affects new records; keep ON for safety.',
-    'audit.privacyConfirmOff': 'Turn OFF privacy mode and show originals? This may expose sensitive data in the admin UI.',
-    'audit.privacyUpdated': 'Privacy mode updated',
-    'audit.privacyUpdateFailed': 'Update failed',
-    'audit.empty': 'No records yet (try a request via Codex)',
-    'audit.hit': 'Hit',
-    'audit.nohit': 'No hit',
-    'audit.skipped': 'Skipped',
+	    'audit.privacyConfirmOff': 'Turn OFF privacy mode and show originals? This may expose sensitive data in the admin UI.',
+	    'audit.privacyUpdated': 'Privacy mode updated',
+	    'audit.privacyUpdateFailed': 'Update failed',
+	    'audit.persistOn': 'Audit persistence: ON (SQLite)',
+	    'audit.persistOff': 'Audit persistence: OFF (SQLite)',
+	    'audit.persistHint': 'Persist audit records to local SQLite for troubleshooting/history. Note: this increases data retention risk.',
+	    'audit.persistConfirmOn': 'Enable audit persistence (SQLite)? This will write audit records to disk.',
+	    'audit.persistConfirmOff': 'Disable audit persistence (SQLite)?',
+	    'audit.persistNotAvailable': 'Audit persistence: not available (install Full build)',
+	    'audit.persistUpdated': 'Audit persistence updated',
+	    'audit.persistUpdateFailed': 'Update failed',
+	    'audit.persistPath': 'Path',
+	    'audit.persistRetention': 'Retention',
+	    'audit.empty': 'No records yet (try a request via Codex)',
+	    'audit.hit': 'Hit',
+	    'audit.nohit': 'No hit',
+	    'audit.skipped': 'Skipped',
     'audit.note.no_body': 'No body',
     'audit.note.not_text': 'Not text',
     'audit.note.too_large': 'Body too large',
@@ -816,7 +818,7 @@ async function initLang() {
   applyLang(saved || 'zh');
 }
 
-const state = { stats: { proxy: {}, session: {}, requests: {} }, patterns: { keywords: [], regex: [], builtin: [], exclude: [] }, rule_lists: [], ui: { patterns_tab: 'rule_lists' }, nlp: { enabled: false, engine: 'heuristic', model_path: '', entities: [], min_score: 0, onnx_available: false }, sessions: { total: 0, mappings: [] }, certs: { ca: {} }, audit: { redact_log: true, max_events: 200, events: [] }, logs: { configured_path: '', effective_path: '', exists: false, lines: [], warning: '' }, debug: { status: { enabled: false, max_body_bytes: 1048576, max_events: 50, mask_headers: true, count: 0 }, events: [] } };
+const state = { stats: { proxy: {}, session: {}, requests: {} }, patterns: { keywords: [], regex: [], builtin: [], exclude: [] }, rule_lists: [], ui: { patterns_tab: 'rule_lists' }, ner: { enabled: false, presidio_url: '', language: 'en', entities: [], min_score: 0 }, sessions: { total: 0, mappings: [] }, certs: { ca: {} }, audit: { redact_log: true, max_events: 200, events: [], persistence: { available: false, enabled: false, path: '', retention: '' } }, logs: { configured_path: '', effective_path: '', exists: false, lines: [], warning: '' }, debug: { status: { enabled: false, max_body_bytes: 1048576, max_events: 50, mask_headers: true, count: 0 }, events: [] } };
 state.auth = { configured: false, authenticated: false, broken: false, broken_error: '' };
 let auditES = null;
 let logsES = null;
@@ -909,7 +911,7 @@ const api = {
 function toast(m, type = 'success') { const e = document.createElement('div'); e.className = 'toast toast-' + type + ' fade-in'; e.textContent = m; document.body.appendChild(e); setTimeout(() => e.remove(), 3000); }
 function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
 function sanitizeInputText(s) {
-  // 清理不可见字符（控制字符/零宽字符/BOM），避免规则“看起来一样但实际匹配不到”
+  // Remove invisible characters (control/zero-width/BOM) to avoid rules that look identical but do not match.
   return (s || '')
     .replace(/[\u0000-\u001f\u007f]/g, '')
     .replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, '')
@@ -945,12 +947,12 @@ function normalizePatterns(p) {
 
 	function route() {
 	  if (!state.auth || !state.auth.authenticated) {
-	    // 首次进入先走鉴权逻辑（setup/login），避免在未登录时触发大量 API 请求。
+	    // On first entry, run auth flow (setup/login) to avoid triggering many API requests before login.
 	    ensureAuthedOrShowAuth();
 	    return;
 	  }
 	  const h = window.location.hash || '#/', p = h.slice(2) || 'dashboard';
-	  // 旧路由兼容：原 #/patterns 页面已拆分为三个独立板块（规则列表/关键词/NLP）。
+	  // Legacy route compatibility: the old #/patterns page has been split into rule lists/keywords/NER.
 	  if (p === 'patterns') {
 	    window.location.hash = '#/rule_lists';
 	    return;
@@ -963,7 +965,7 @@ function normalizePatterns(p) {
 	  else if (p === 'audit') renderAudit();
 	  else if (p === 'rule_lists') renderRuleListsPage();
 	  else if (p === 'keywords') renderKeywordsPage();
-	  else if (p === 'nlp') renderNLPPage();
+	  else if (p === 'ner') renderNERPage();
 	  else if (p === 'sessions') renderSessions();
 	  else if (p === 'certs') renderCerts();
 	  else if (p === 'logs') renderLogs();
@@ -1136,6 +1138,16 @@ async function renderAudit() {
             '</label>' +
           '</div>' +
           '<div class="text-xs text-muted mt-2">' + t('audit.privacyHint') + '</div>' +
+          '<div id="audit-persist-row" class="mt-4" style="display:none">' +
+            '<div class="flex items-center gap-3">' +
+              '<div id="audit-persist" class="tag tag-yellow inline-flex"></div>' +
+              '<label class="pill-switch" title="' + esc(t('audit.persistHint')) + '">' +
+                '<input type="checkbox" id="audit-persist-toggle" onchange="toggleAuditPersistence(this.checked)">' +
+                '<span class="pill-slider"></span>' +
+              '</label>' +
+            '</div>' +
+            '<div class="text-xs text-muted mt-2" id="audit-persist-hint"></div>' +
+          '</div>' +
         '</div>' +
         '<div class="text-xs text-muted" id="audit-status"></div>' +
       '</div>' +
@@ -1151,6 +1163,7 @@ async function renderAudit() {
 
   state.audit.events = [];
   renderAuditMeta();
+  loadAuditPersistence();
   renderAuditList();
   startAuditStream();
 }
@@ -1193,6 +1206,93 @@ async function toggleAuditPrivacy(on) {
   }
 }
 
+let auditPersistBusy = false;
+async function loadAuditPersistence() {
+  if (!state.auth?.authenticated) return;
+  try {
+    const d = await api.get('/audit/persistence');
+    state.audit.persistence = {
+      available: !!d?.available,
+      enabled: !!d?.enabled,
+      path: String(d?.path || ''),
+      retention: String(d?.retention || '')
+    };
+  } catch (e) {
+    state.audit.persistence = { available: false, enabled: false, path: '', retention: '' };
+  }
+  renderAuditPersistMeta();
+}
+
+function renderAuditPersistMeta() {
+  const row = document.getElementById('audit-persist-row');
+  const tag = document.getElementById('audit-persist');
+  const toggle = document.getElementById('audit-persist-toggle');
+  const hint = document.getElementById('audit-persist-hint');
+  if (!row || !tag || !toggle || !hint) return;
+
+  const p = state.audit.persistence || { available: false, enabled: false, path: '', retention: '' };
+  row.style.display = 'block';
+
+  if (!p.available) {
+    tag.textContent = t('audit.persistNotAvailable');
+    tag.className = 'tag tag-red inline-flex';
+    toggle.disabled = true;
+    toggle.checked = false;
+    hint.textContent = t('audit.persistHint');
+    return;
+  }
+
+  toggle.disabled = false;
+  const on = !!p.enabled;
+  tag.textContent = on ? t('audit.persistOn') : t('audit.persistOff');
+  tag.className = 'tag ' + (on ? 'tag-green' : 'tag-yellow') + ' inline-flex';
+  toggle.checked = on;
+
+  const parts = [];
+  if (p.path) parts.push(t('audit.persistPath') + ': ' + p.path);
+  if (p.retention) parts.push(t('audit.persistRetention') + ': ' + p.retention);
+  hint.textContent = t('audit.persistHint') + (parts.length ? (' ' + parts.join(' · ')) : '');
+}
+
+async function toggleAuditPersistence(on) {
+  if (auditPersistBusy) return;
+  const prev = !!(state.audit.persistence?.enabled);
+  const next = !!on;
+
+  if (next && !prev) {
+    if (!confirm(t('audit.persistConfirmOn'))) {
+      renderAuditPersistMeta();
+      return;
+    }
+  }
+  if (!next && prev) {
+    if (!confirm(t('audit.persistConfirmOff'))) {
+      renderAuditPersistMeta();
+      return;
+    }
+  }
+
+  auditPersistBusy = true;
+  try {
+    const resp = await api.post('/audit/persistence', { enabled: next });
+    state.audit.persistence = {
+      available: !!resp?.available,
+      enabled: !!resp?.enabled,
+      path: String(resp?.path || ''),
+      retention: String(resp?.retention || '')
+    };
+    renderAuditPersistMeta();
+    toast(t('audit.persistUpdated'));
+  } catch (e) {
+    if (!state.audit.persistence) state.audit.persistence = { available: false, enabled: false, path: '', retention: '' };
+    state.audit.persistence.enabled = prev;
+    renderAuditPersistMeta();
+    toast(t('audit.persistUpdateFailed') + ': ' + e.message, 'error');
+  } finally {
+    auditPersistBusy = false;
+  }
+}
+
 function previewValue(s, head = 2, tail = 2) {
   const r = Array.from(String(s || ''));
   const n = r.length;
@@ -1206,9 +1306,9 @@ function previewValue(s, head = 2, tail = 2) {
 
 function auditDisplayMatchValue(m) {
   const val = String(m?.value || '');
-  // 隐私模式开启：无论记录当时是否为原文，都只展示预览
+  // Privacy mode on: always show preview, even if the record originally contained raw text.
   if (!!state.audit.redact_log) return previewValue(val, 2, 2);
-  // 隐私模式关闭：尽量展示原文；若该条记录本身是预览，则只能展示预览
+  // Privacy mode off: show raw text when possible; if this record is already a preview, only preview is available.
   return val;
 }
 
@@ -1258,7 +1358,7 @@ function renderAuditList() {
   }
 
   empty.textContent = '';
-  // 性能保护：最多渲染最后 200 条
+  // Performance guard: render at most the last 200 items.
   const max = 200;
   const list = filtered.length > max ? filtered.slice(filtered.length - max) : filtered;
 
@@ -1675,217 +1775,64 @@ async function renderLogs() {
 	  await loadPatterns();
 	}
 
-	async function renderNLPPage() {
+	async function renderNERPage() {
 	  document.getElementById('main-content').innerHTML =
-	    '<div class="mb-8"><h2 class="text-2xl font-bold text-text">' + t('nlp.title') + '</h2><p class="text-muted mt-1">' + t('nlp.subtitle') + '</p></div>' +
+	    '<div class="mb-8"><h2 class="text-2xl font-bold text-text">' + t('ner.title') + '</h2><p class="text-muted mt-1">' + t('ner.subtitle') + '</p></div>' +
 	    '<div class="card p-6">' +
 	      '<div class="flex justify-between items-start gap-6">' +
 	        '<div>' +
-	          '<h3 class="font-semibold text-text">' + t('nlp.title') + '</h3>' +
-	          '<div class="text-xs text-muted mt-1">' + t('nlp.subtitle') + '</div>' +
+	          '<h3 class="font-semibold text-text">' + t('ner.title') + '</h3>' +
+	          '<div class="text-xs text-muted mt-1">' + t('ner.subtitle') + '</div>' +
 	        '</div>' +
 	        '<div class="flex items-center gap-3">' +
-	          '<div id="nlp-status" class="tag tag-yellow inline-flex"></div>' +
-	          '<label class="pill-switch" title="' + esc(t('nlp.hint')) + '">' +
-	            '<input type="checkbox" id="nlp-toggle" onchange="toggleNLP(this.checked)">' +
+	          '<div id="ner-status" class="tag tag-yellow inline-flex"></div>' +
+	          '<label class="pill-switch" title="' + esc(t('ner.hint')) + '">' +
+	            '<input type="checkbox" id="ner-toggle" onchange="toggleNER(this.checked)">' +
 	            '<span class="pill-slider"></span>' +
 	          '</label>' +
 	        '</div>' +
 	      '</div>' +
-	      '<div class="text-xs text-muted mt-3">' + t('nlp.optionalNote') + '</div>' +
-	      '<details class="mt-4">' +
-	        '<summary class="text-sm font-medium text-text cursor-pointer select-none">' + t('nlp.advanced') + '</summary>' +
+	      '<div class="text-xs text-muted mt-3">' + t('ner.optionalNote') + '</div>' +
+	      '<div class="mt-4">' +
+	        '<div class="text-xs text-muted">' + t('ner.hint') + '</div>' +
+	        '<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">' +
+	          '<div>' +
+	            '<div class="text-sm font-medium text-text mb-2">' + t('ner.presidioUrl') + '</div>' +
+	            '<input type="text" id="ner-presidio-url" class="w-full font-mono" placeholder="' + esc(t('ner.presidioUrlPlaceholder')) + '" onblur="updateNERPresidioURL()">' +
+	            '<div class="text-xs text-muted mt-2">' + t('ner.presidioUrlHint') + '</div>' +
+	          '</div>' +
+		          '<div>' +
+		            '<div class="text-sm font-medium text-text mb-2">' + t('ner.language') + '</div>' +
+		            '<select id="ner-language" class="w-full font-mono" onchange="onNERLanguageChange()">' +
+		              '<option value="en">en</option>' +
+		              '<option value="zh">zh</option>' +
+		              '<option value="fr">fr</option>' +
+		              '<option value="de">de</option>' +
+		              '<option value="es">es</option>' +
+		              '<option value="pt">pt</option>' +
+		              '<option value="it">it</option>' +
+		              '<option value="ru">ru</option>' +
+		              '<option value="ja">ja</option>' +
+		              '<option value="ko">ko</option>' +
+		              '<option value="custom">' + esc(t('ner.languageCustom')) + '</option>' +
+		            '</select>' +
+		            '<input type="text" id="ner-language-custom" class="w-full font-mono mt-2" style="display:none" placeholder="' + esc(t('ner.languageCustomPlaceholder')) + '" onblur="updateNERLanguage()">' +
+		            '<div class="text-xs text-muted mt-2">' + t('ner.languageHint') + '</div>' +
+		          '</div>' +
+	          '<div>' +
+	            '<div class="text-sm font-medium text-text mb-2">' + t('ner.minScore') + '</div>' +
+	            '<input type="number" id="ner-min-score" min="0" max="1" step="0.05" class="w-full font-mono" onblur="updateNERMinScore()">' +
+	            '<div class="text-xs text-muted mt-2">' + t('ner.minScoreHint') + '</div>' +
+	          '</div>' +
+	        '</div>' +
 	        '<div class="mt-4">' +
-	          '<div class="text-xs text-muted">' + t('nlp.hint') + '</div>' +
-	          '<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">' +
-	            '<div>' +
-	              '<div class="text-sm font-medium text-text mb-2">' + t('nlp.engine') + '</div>' +
-	              '<select id="nlp-engine" class="w-full" onchange="updateNLPEngine(this.value)"></select>' +
-	              '<div id="nlp-onnx-hint" class="text-xs text-muted mt-2"></div>' +
-	            '</div>' +
-	            '<div id="nlp-onnx-fields" style="display:none">' +
-	              '<div class="text-sm font-medium text-text mb-2">' + t('nlp.modelPath') + '</div>' +
-	              '<input type="text" id="nlp-model-path" class="w-full font-mono" placeholder="~/.vibeguard/models/ner" onblur="updateNLPModelPath()">' +
-	              '<div class="text-sm font-medium text-text mb-2 mt-3">' + t('nlp.minScore') + '</div>' +
-	              '<input type="number" id="nlp-min-score" min="0" max="1" step="0.05" class="w-full font-mono" onblur="updateNLPMinScore()">' +
-	              '<div class="mt-4 p-3 bg-surface rounded-lg border border-border">' +
-	                '<div class="flex items-center justify-between gap-4">' +
-	                  '<div>' +
-	                    '<div class="text-sm font-medium text-text">' + t('nlp.routeByLang') + '</div>' +
-	                    '<div class="text-xs text-muted mt-1">' + t('nlp.routeByLangHint') + '</div>' +
-	                  '</div>' +
-	                  '<label class="pill-switch">' +
-	                    '<input type="checkbox" id="nlp-route-toggle" onchange="updateNLPRouteByLang(this.checked)">' +
-	                    '<span class="pill-slider"></span>' +
-	                  '</label>' +
-	                '</div>' +
-	                '<div id="nlp-route-fields" class="mt-3" style="display:none">' +
-	                  '<div class="text-sm font-medium text-text mb-2">' + t('nlp.modelPathEn') + '</div>' +
-	                  '<input type="text" id="nlp-model-path-en" class="w-full font-mono" placeholder="~/.vibeguard/models/ner/en" onblur="updateNLPModelPathEN()">' +
-	                  '<div class="text-sm font-medium text-text mb-2 mt-3">' + t('nlp.modelPathZh') + '</div>' +
-	                  '<input type="text" id="nlp-model-path-zh" class="w-full font-mono" placeholder="~/.vibeguard/models/ner/zh" onblur="updateNLPModelPathZH()">' +
-	                  '<div class="text-sm font-medium text-text mb-2 mt-3">' + t('nlp.maxLoadedModels') + '</div>' +
-	                  '<select id="nlp-max-loaded" class="w-full" onchange="updateNLPMaxLoadedModels(this.value)">' +
-	                    '<option value="1">1</option>' +
-	                    '<option value="2">2</option>' +
-	                  '</select>' +
-	                  '<div class="text-xs text-muted mt-2">' + t('nlp.maxLoadedModelsHint') + '</div>' +
-	                '</div>' +
-	              '</div>' +
-	            '</div>' +
-	          '</div>' +
-	          '<div class="mt-4">' +
-	            '<div class="text-sm font-medium text-text mb-2">' + t('nlp.entities') + '</div>' +
-	            '<div id="nlp-entities" class="grid grid-cols-1 md:grid-cols-2 gap-2"></div>' +
-	          '</div>' +
-	        '</div>' +
-	      '</details>' +
-	    '</div>';
-	  await loadNLP();
-	}
-
-	async function renderPatterns() {
-	  document.getElementById('main-content').innerHTML =
-	    '<div class="mb-8"><h2 class="text-2xl font-bold text-text">' + t('patterns.title') + '</h2><p class="text-muted mt-1">' + t('patterns.subtitle') + '</p></div>' +
-	    '<div class="card p-4 mb-6 flex flex-wrap gap-2 items-center">' +
-	      '<button id="patterns-tab-rulelists" class="btn btn-secondary text-sm" onclick="setPatternsTab(\'rule_lists\')">' + t('patterns.tabs.ruleLists') + '</button>' +
-      '<button id="patterns-tab-keywords" class="btn btn-secondary text-sm" onclick="setPatternsTab(\'keywords\')">' + t('patterns.tabs.keywords') + '</button>' +
-    '</div>' +
-    '<div id="patterns-tab-body"></div>' +
-    '<details class="card p-6 mt-6">' +
-      '<summary class="cursor-pointer select-none">' +
-        '<div>' +
-          '<div class="font-semibold text-text">' + t('patterns.optional.title') + '</div>' +
-          '<div class="text-xs text-muted mt-1">' + t('patterns.optional.subtitle') + '</div>' +
-        '</div>' +
-      '</summary>' +
-      '<div class="mt-6 space-y-6">' +
-        '<div class="card p-6">' +
-          '<div class="flex justify-between items-start gap-6">' +
-            '<div>' +
-              '<h3 class="font-semibold text-text">' + t('nlp.title') + '</h3>' +
-              '<div class="text-xs text-muted mt-1">' + t('nlp.subtitle') + '</div>' +
-            '</div>' +
-            '<div class="flex items-center gap-3">' +
-              '<div id="nlp-status" class="tag tag-yellow inline-flex"></div>' +
-              '<label class="pill-switch" title="' + esc(t('nlp.hint')) + '">' +
-                '<input type="checkbox" id="nlp-toggle" onchange="toggleNLP(this.checked)">' +
-                '<span class="pill-slider"></span>' +
-              '</label>' +
-            '</div>' +
-          '</div>' +
-          '<div class="text-xs text-muted mt-3">' + t('nlp.optionalNote') + '</div>' +
-          '<details class="mt-4">' +
-            '<summary class="text-sm font-medium text-text cursor-pointer select-none">' + t('nlp.advanced') + '</summary>' +
-            '<div class="mt-4">' +
-              '<div class="text-xs text-muted">' + t('nlp.hint') + '</div>' +
-              '<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">' +
-                '<div>' +
-                  '<div class="text-sm font-medium text-text mb-2">' + t('nlp.engine') + '</div>' +
-                  '<select id="nlp-engine" class="w-full" onchange="updateNLPEngine(this.value)"></select>' +
-                  '<div id="nlp-onnx-hint" class="text-xs text-muted mt-2"></div>' +
-                '</div>' +
-                '<div id="nlp-onnx-fields" style="display:none">' +
-                  '<div class="text-sm font-medium text-text mb-2">' + t('nlp.modelPath') + '</div>' +
-                  '<input type="text" id="nlp-model-path" class="w-full font-mono" placeholder="~/.vibeguard/models/ner" onblur="updateNLPModelPath()">' +
-                  '<div class="text-sm font-medium text-text mb-2 mt-3">' + t('nlp.minScore') + '</div>' +
-                  '<input type="number" id="nlp-min-score" min="0" max="1" step="0.05" class="w-full font-mono" onblur="updateNLPMinScore()">' +
-                  '<div class="mt-4 p-3 bg-surface rounded-lg border border-border">' +
-                    '<div class="flex items-center justify-between gap-4">' +
-                      '<div>' +
-                        '<div class="text-sm font-medium text-text">' + t('nlp.routeByLang') + '</div>' +
-                        '<div class="text-xs text-muted mt-1">' + t('nlp.routeByLangHint') + '</div>' +
-                      '</div>' +
-                      '<label class="pill-switch">' +
-                        '<input type="checkbox" id="nlp-route-toggle" onchange="updateNLPRouteByLang(this.checked)">' +
-                        '<span class="pill-slider"></span>' +
-                      '</label>' +
-                    '</div>' +
-                    '<div id="nlp-route-fields" class="mt-3" style="display:none">' +
-                      '<div class="text-sm font-medium text-text mb-2">' + t('nlp.modelPathEn') + '</div>' +
-                      '<input type="text" id="nlp-model-path-en" class="w-full font-mono" placeholder="~/.vibeguard/models/ner/en" onblur="updateNLPModelPathEN()">' +
-                      '<div class="text-sm font-medium text-text mb-2 mt-3">' + t('nlp.modelPathZh') + '</div>' +
-                      '<input type="text" id="nlp-model-path-zh" class="w-full font-mono" placeholder="~/.vibeguard/models/ner/zh" onblur="updateNLPModelPathZH()">' +
-                      '<div class="text-sm font-medium text-text mb-2 mt-3">' + t('nlp.maxLoadedModels') + '</div>' +
-                      '<select id="nlp-max-loaded" class="w-full" onchange="updateNLPMaxLoadedModels(this.value)">' +
-                        '<option value="1">1</option>' +
-                        '<option value="2">2</option>' +
-                      '</select>' +
-                      '<div class="text-xs text-muted mt-2">' + t('nlp.maxLoadedModelsHint') + '</div>' +
-                    '</div>' +
-                  '</div>' +
-                '</div>' +
-              '</div>' +
-              '<div class="mt-4">' +
-                '<div class="text-sm font-medium text-text mb-2">' + t('nlp.entities') + '</div>' +
-                '<div id="nlp-entities" class="grid grid-cols-1 md:grid-cols-2 gap-2"></div>' +
-              '</div>' +
-            '</div>' +
-          '</details>' +
-        '</div>' +
-      '</div>' +
-    '</details>';
-  await renderPatternsTab();
-  await loadNLP();
-}
-
-function getPatternsTab() {
-  let v = '';
-  try { v = String(localStorage.getItem('vg_patterns_tab') || '').trim(); } catch (e) { /* ignore */ }
-  if (v === 'keywords' || v === 'rule_lists') return v;
-  const cur = String(state.ui?.patterns_tab || '').trim();
-  if (cur === 'keywords' || cur === 'rule_lists') return cur;
-  return 'rule_lists';
-}
-
-function setPatternsTab(tab) {
-  const v = String(tab || '').trim();
-  if (v !== 'keywords' && v !== 'rule_lists') return;
-  if (!state.ui) state.ui = {};
-  state.ui.patterns_tab = v;
-  try { localStorage.setItem('vg_patterns_tab', v); } catch (e) { /* ignore */ }
-  renderPatternsTab();
-}
-
-async function renderPatternsTab() {
-  const tab = getPatternsTab();
-  if (!state.ui) state.ui = {};
-  state.ui.patterns_tab = tab;
-
-  const b1 = document.getElementById('patterns-tab-rulelists');
-  const b2 = document.getElementById('patterns-tab-keywords');
-  if (b1) b1.className = 'btn ' + (tab === 'rule_lists' ? 'btn-primary' : 'btn-secondary') + ' text-sm';
-  if (b2) b2.className = 'btn ' + (tab === 'keywords' ? 'btn-primary' : 'btn-secondary') + ' text-sm';
-
-  const body = document.getElementById('patterns-tab-body');
-  if (!body) return;
-
-  if (tab === 'keywords') {
-    body.innerHTML =
-      '<div class="card p-6">' +
-        '<div class="flex justify-between items-center mb-4"><h3 class="font-semibold text-text">' + t('patterns.regex') + '</h3><button class="btn btn-primary text-sm" onclick="showAddKeyword()">' + t('patterns.add') + '</button></div>' +
-        '<div id="keywords-list" class="space-y-2"><div class="text-muted text-sm py-4 text-center">' + t('patterns.loading') + '</div></div>' +
-      '</div>';
-    await loadPatterns();
-    return;
-  }
-
-	  body.innerHTML =
-	    '<div class="card p-6">' +
-	      '<div class="flex justify-between items-center mb-4">' +
-	        '<div>' +
-	          '<h3 class="font-semibold text-text">' + t('ruleLists.title') + '</h3>' +
-	          '<div class="text-xs text-muted mt-1">' + t('ruleLists.subtitle') + '</div>' +
-	        '</div>' +
-	        '<div class="flex flex-wrap gap-2 justify-end">' +
-	          '<button class="btn btn-primary text-sm" onclick="showUploadRuleList()">' + t('ruleLists.upload') + '</button>' +
-	          '<button class="btn btn-secondary text-sm" onclick="showSubscribeRuleList()">' + t('ruleLists.subscribe') + '</button>' +
+	          '<div class="text-sm font-medium text-text mb-2">' + t('ner.entities') + '</div>' +
+	          '<div id="ner-entities" class="grid grid-cols-1 md:grid-cols-2 gap-2"></div>' +
 	        '</div>' +
 	      '</div>' +
-	      '<div id="rule-lists-list" class="space-y-2"><div class="text-muted text-sm py-4 text-center">' + t('patterns.loading') + '</div></div>' +
 	    '</div>';
-  await loadRuleLists();
-}
+	  await loadNER();
+	}
 
 function normalizeRuleLists(raw) {
   const r = raw || {};
@@ -1979,7 +1926,7 @@ function renderRuleListsList() {
       '</div>';
   }).join('');
 
-  // 填充输入值（避免属性转义复杂度）
+  // Fill input values (avoid attribute-escaping complexity).
   list.forEach((rl, i) => {
     const nameEl = document.getElementById('rulelist-name-' + i);
     if (nameEl) nameEl.value = String(rl.name || '');
@@ -2143,12 +2090,6 @@ function showSubscribeRuleList() {
   overlay.innerHTML = '<div class="modal-content"><h3 class="text-lg font-bold text-text mb-6">' + esc(t('ruleLists.subscribeTitle')) + '</h3>' +
     '<div class="mb-4"><label class="block text-sm font-medium text-text mb-2">' + t('ruleLists.url') + ' <span class="text-danger">*</span></label>' +
       '<input type="text" id="rulelist-sub-url" class="w-full font-mono" placeholder="' + esc(t('ruleLists.urlPlaceholder')) + '"></div>' +
-    '<div class="mb-4"><label class="block text-sm font-medium text-text mb-2">' + t('ruleLists.sigUrl') + '</label>' +
-      '<input type="text" id="rulelist-sub-sigurl" class="w-full font-mono" placeholder="' + esc(t('ruleLists.sigUrlPlaceholder')) + '"></div>' +
-    '<div class="mb-4"><label class="block text-sm font-medium text-text mb-2">' + t('ruleLists.pubKey') + '</label>' +
-      '<input type="text" id="rulelist-sub-pubkey" class="w-full font-mono" placeholder="' + esc(t('ruleLists.pubKeyPlaceholder')) + '"></div>' +
-    '<div class="mb-4"><label class="block text-sm font-medium text-text mb-2">' + t('ruleLists.sha256') + '</label>' +
-      '<input type="text" id="rulelist-sub-sha256" class="w-full font-mono" placeholder="' + esc(t('ruleLists.sha256Placeholder')) + '"></div>' +
     '<div class="mb-4"><label class="block text-sm font-medium text-text mb-2">' + t('ruleLists.updateInterval') + '</label>' +
       '<input type="text" id="rulelist-sub-interval" class="w-full font-mono" value="24h" placeholder="' + esc(t('ruleLists.updateIntervalPlaceholder')) + '"></div>' +
     '<div class="mb-4"><label class="text-sm text-muted flex items-center gap-2"><input type="checkbox" id="rulelist-sub-allowhttp">' + t('ruleLists.allowHTTP') + '</label></div>' +
@@ -2165,10 +2106,6 @@ function showSubscribeRuleList() {
 	function confirmSubscribeRuleList() {
 	  const url = sanitizeInputText(document.getElementById('rulelist-sub-url')?.value || '');
 	  if (!url) { toast(t('ruleLists.urlRequired'), 'error'); return; }
-	  const sigURL = sanitizeInputText(document.getElementById('rulelist-sub-sigurl')?.value || '');
-	  const pubKey = sanitizeInputText(document.getElementById('rulelist-sub-pubkey')?.value || '');
-	  const sha256 = sanitizeInputText(document.getElementById('rulelist-sub-sha256')?.value || '');
-	  if (!sha256 && !(sigURL && pubKey)) { toast(t('ruleLists.verifyRequired'), 'error'); return; }
 	  const interval = sanitizeInputText(document.getElementById('rulelist-sub-interval')?.value || '');
 	  const allowHTTP = !!document.getElementById('rulelist-sub-allowhttp')?.checked;
 	  const name = sanitizeInputText(document.getElementById('rulelist-sub-name')?.value || '');
@@ -2178,7 +2115,7 @@ function showSubscribeRuleList() {
   if (p < 1) p = 1;
   if (p > 99) p = 99;
   closeModal();
-  subscribeRuleList({ url: url, sig_url: sigURL, pubkey: pubKey, sha256: sha256, update_interval: interval, allow_http: allowHTTP, name: name, priority: p });
+  subscribeRuleList({ url: url, update_interval: interval, allow_http: allowHTTP, name: name, priority: p });
 }
 
 async function subscribeRuleList(payload) {
@@ -2199,286 +2136,193 @@ function renderPatternsLists() {
 }
 async function deletePattern(type, idx) { if (!confirm(t('patterns.deleteConfirm'))) return; try { await api.del('/patterns/' + type + '/' + idx); toast(t('patterns.deleted')); await loadPatterns(); } catch (e) { toast(t('patterns.deleteFailed') + ': ' + e.message, 'error'); } }
 
-const NLP_ENTITY_OPTIONS = [
-  { key: 'PERSON', label: 'nlp.entity.person' },
-  { key: 'ORG', label: 'nlp.entity.org' },
-  { key: 'LOCATION', label: 'nlp.entity.location' }
+const NER_ENTITY_OPTIONS = [
+  { key: 'PERSON', label: 'ner.entity.person' },
+  { key: 'ORG', label: 'ner.entity.org' },
+  { key: 'LOCATION', label: 'ner.entity.location' }
 ];
+const NER_LANGUAGE_PRESETS = new Set(['en', 'zh', 'fr', 'de', 'es', 'pt', 'it', 'ru', 'ja', 'ko']);
 
-async function loadNLP() { try { state.nlp = await api.get('/nlp'); renderNLPMeta(); } catch (e) { console.error(e); } }
-function renderNLPMeta() {
-  const el = document.getElementById('nlp-status');
-  const toggle = document.getElementById('nlp-toggle');
+async function loadNER() { try { state.ner = await api.get('/ner'); renderNERMeta(); } catch (e) { console.error(e); } }
+function renderNERMeta() {
+  const el = document.getElementById('ner-status');
+  const toggle = document.getElementById('ner-toggle');
   if (!el) return;
 
-  const on = !!(state.nlp && state.nlp.enabled);
-  el.textContent = on ? t('nlp.on') : t('nlp.off');
+  const on = !!(state.ner && state.ner.enabled);
+  el.textContent = on ? t('ner.on') : t('ner.off');
   el.className = 'tag ' + (on ? 'tag-green' : 'tag-yellow') + ' inline-flex';
   if (toggle) toggle.checked = on;
 
-  const onnxOk = !!state.nlp?.onnx_available;
-  let engine = String(state.nlp?.engine || 'heuristic').toLowerCase();
-  if (engine === 'onnx' && !onnxOk) engine = 'heuristic';
+  const pu = document.getElementById('ner-presidio-url');
+  if (pu) pu.value = String(state.ner?.presidio_url || '');
 
-  const sel = document.getElementById('nlp-engine');
-  if (sel) {
-    sel.innerHTML =
-      '<option value="heuristic">' + esc(t('nlp.engine.heuristic')) + '</option>' +
-      '<option value="onnx"' + (onnxOk ? '' : ' disabled') + '>' + esc(t('nlp.engine.onnx')) + '</option>';
-    sel.value = (engine === 'onnx' || engine === 'heuristic') ? engine : 'heuristic';
-  }
+	const pl = document.getElementById('ner-language');
+	const plc = document.getElementById('ner-language-custom');
+	if (pl) {
+	  let v = String(state.ner?.language || 'en').trim().toLowerCase();
+	  if (!v || v === 'auto') v = 'en';
+	  if (NER_LANGUAGE_PRESETS.has(v)) {
+	    pl.value = v;
+	    if (plc) { plc.value = ''; plc.style.display = 'none'; }
+	  } else {
+	    pl.value = 'custom';
+	    if (plc) { plc.value = v; plc.style.display = ''; }
+	  }
+	}
 
-  const hint = document.getElementById('nlp-onnx-hint');
-  if (hint) hint.textContent = onnxOk ? '' : t('nlp.engine.onnxUnavailable');
+  const ms = document.getElementById('ner-min-score');
+  if (ms) ms.value = String(state.ner?.min_score ?? 0);
 
-  const onnxFields = document.getElementById('nlp-onnx-fields');
-  if (onnxFields) onnxFields.style.display = (engine === 'onnx') ? '' : 'none';
-
-  const mp = document.getElementById('nlp-model-path');
-  if (mp) mp.value = String(state.nlp?.model_path || '');
-  const ms = document.getElementById('nlp-min-score');
-  if (ms) ms.value = String(state.nlp?.min_score ?? 0);
-
-  const routeOn = !!state.nlp?.route_by_lang;
-  const rt = document.getElementById('nlp-route-toggle');
-  if (rt) rt.checked = routeOn;
-
-  const rf = document.getElementById('nlp-route-fields');
-  if (rf) rf.style.display = (engine === 'onnx' && routeOn) ? '' : 'none';
-
-  const mpe = document.getElementById('nlp-model-path-en');
-  if (mpe) mpe.value = String(state.nlp?.model_path_en || '');
-  const mpz = document.getElementById('nlp-model-path-zh');
-  if (mpz) mpz.value = String(state.nlp?.model_path_zh || '');
-  const ml = document.getElementById('nlp-max-loaded');
-  if (ml) ml.value = String(state.nlp?.max_loaded_models ?? 1);
-
-  renderNLPEntities();
+  renderNEREntities();
 }
 
-function renderNLPEntities() {
-  const box = document.getElementById('nlp-entities');
+function renderNEREntities() {
+  const box = document.getElementById('ner-entities');
   if (!box) return;
-  const selected = new Set(Array.isArray(state.nlp?.entities) ? state.nlp.entities : []);
-  box.innerHTML = NLP_ENTITY_OPTIONS.map(o =>
+  const selected = new Set(Array.isArray(state.ner?.entities) ? state.ner.entities : []);
+  box.innerHTML = NER_ENTITY_OPTIONS.map(o =>
     '<label class="flex items-start gap-3 p-3 bg-surface rounded-lg cursor-pointer hover:bg-surface/70">' +
-      '<input type="checkbox" class="mt-1" id="nlp-ent-' + esc(o.key) + '" ' + (selected.has(o.key) ? 'checked' : '') + ' onchange="updateNLPEntities()">' +
+      '<input type="checkbox" class="mt-1" id="ner-ent-' + esc(o.key) + '" ' + (selected.has(o.key) ? 'checked' : '') + ' onchange="updateNEREntities()">' +
       '<div><div class="text-sm text-text font-medium">' + t(o.label) + '</div></div>' +
     '</label>'
   ).join('');
 }
 
-let nlpBusy = false;
-async function toggleNLP(on) {
-  if (nlpBusy) return;
-  const prev = !!(state.nlp && state.nlp.enabled);
+let nerBusy = false;
+async function toggleNER(on) {
+  if (nerBusy) return;
+  const prev = !!(state.ner && state.ner.enabled);
   const next = !!on;
-  nlpBusy = true;
+  nerBusy = true;
   try {
-    const resp = await api.post('/nlp', { enabled: next });
-    state.nlp = resp || state.nlp;
-    renderNLPMeta();
-    toast(t('nlp.updated'));
+    const resp = await api.post('/ner', { enabled: next });
+    state.ner = resp || state.ner;
+    renderNERMeta();
+    toast(t('ner.updated'));
   } catch (e) {
-    if (!state.nlp) state.nlp = {};
-    state.nlp.enabled = prev;
-    renderNLPMeta();
-    toast(t('nlp.updateFailed') + ': ' + e.message, 'error');
+    if (!state.ner) state.ner = {};
+    state.ner.enabled = prev;
+    renderNERMeta();
+    toast(t('ner.updateFailed') + ': ' + e.message, 'error');
   } finally {
-    nlpBusy = false;
+    nerBusy = false;
   }
 }
 
-async function updateNLPEngine(engine) {
-  if (nlpBusy) return;
-  const prev = String(state.nlp?.engine || 'heuristic');
-  const next = String(engine || '').toLowerCase();
-  if (next !== 'heuristic' && next !== 'onnx') return;
-  nlpBusy = true;
+async function updateNERPresidioURL() {
+  if (nerBusy) return;
+  const prev = String(state.ner?.presidio_url || '');
+  const next = String(document.getElementById('ner-presidio-url')?.value || '').trim();
+  nerBusy = true;
   try {
-    const resp = await api.post('/nlp', { engine: next });
-    state.nlp = resp || state.nlp;
-    renderNLPMeta();
-    toast(t('nlp.updated'));
+    const resp = await api.post('/ner', { presidio_url: next });
+    state.ner = resp || state.ner;
+    renderNERMeta();
+    toast(t('ner.updated'));
   } catch (e) {
-    if (!state.nlp) state.nlp = {};
-    state.nlp.engine = prev;
-    renderNLPMeta();
-    toast(t('nlp.updateFailed') + ': ' + e.message, 'error');
+    if (!state.ner) state.ner = {};
+    state.ner.presidio_url = prev;
+    renderNERMeta();
+    toast(t('ner.updateFailed') + ': ' + e.message, 'error');
   } finally {
-    nlpBusy = false;
+    nerBusy = false;
   }
 }
 
-async function updateNLPEntities() {
-  if (nlpBusy) return;
-  const prev = Array.isArray(state.nlp?.entities) ? state.nlp.entities.slice() : [];
-  const selected = NLP_ENTITY_OPTIONS
-    .filter(o => document.getElementById('nlp-ent-' + o.key)?.checked)
+async function updateNERLanguage() {
+  if (nerBusy) return;
+  const prev = String(state.ner?.language || 'en');
+  const sel = String(document.getElementById('ner-language')?.value || '').trim();
+  let next = sel;
+  if (sel === 'custom') {
+    next = String(document.getElementById('ner-language-custom')?.value || '').trim();
+  }
+  next = String(next || '').trim().toLowerCase();
+  if (!next || next === 'auto') next = 'en';
+  nerBusy = true;
+  try {
+    const resp = await api.post('/ner', { language: next });
+    state.ner = resp || state.ner;
+    renderNERMeta();
+    toast(t('ner.updated'));
+  } catch (e) {
+    if (!state.ner) state.ner = {};
+    state.ner.language = prev;
+    renderNERMeta();
+    toast(t('ner.updateFailed') + ': ' + e.message, 'error');
+  } finally {
+    nerBusy = false;
+  }
+}
+
+function onNERLanguageChange() {
+  const sel = String(document.getElementById('ner-language')?.value || '').trim();
+  const plc = document.getElementById('ner-language-custom');
+  if (sel === 'custom') {
+    if (plc) {
+      plc.style.display = '';
+      setTimeout(() => { try { plc.focus(); } catch (e) {} }, 0);
+    }
+    return;
+  }
+  if (plc) { plc.value = ''; plc.style.display = 'none'; }
+  updateNERLanguage();
+}
+
+async function updateNEREntities() {
+  if (nerBusy) return;
+  const prev = Array.isArray(state.ner?.entities) ? state.ner.entities.slice() : [];
+  const selected = NER_ENTITY_OPTIONS
+    .filter(o => document.getElementById('ner-ent-' + o.key)?.checked)
     .map(o => o.key);
 
   if (selected.length === 0) {
-    toast(t('nlp.atLeastOne'), 'error');
-    if (!state.nlp) state.nlp = {};
-    state.nlp.entities = prev;
-    renderNLPEntities();
+    toast(t('ner.atLeastOne'), 'error');
+    if (!state.ner) state.ner = {};
+    state.ner.entities = prev;
+    renderNEREntities();
     return;
   }
 
-  nlpBusy = true;
+  nerBusy = true;
   try {
-    const resp = await api.post('/nlp', { entities: selected });
-    state.nlp = resp || state.nlp;
-    renderNLPMeta();
-    toast(t('nlp.updated'));
+    const resp = await api.post('/ner', { entities: selected });
+    state.ner = resp || state.ner;
+    renderNERMeta();
+    toast(t('ner.updated'));
   } catch (e) {
-    if (!state.nlp) state.nlp = {};
-    state.nlp.entities = prev;
-    renderNLPMeta();
-    toast(t('nlp.updateFailed') + ': ' + e.message, 'error');
+    if (!state.ner) state.ner = {};
+    state.ner.entities = prev;
+    renderNERMeta();
+    toast(t('ner.updateFailed') + ': ' + e.message, 'error');
   } finally {
-    nlpBusy = false;
+    nerBusy = false;
   }
 }
 
-async function updateNLPModelPath() {
-  if (nlpBusy) return;
-  const engine = String(state.nlp?.engine || 'heuristic').toLowerCase();
-  if (engine !== 'onnx') return;
-  const prev = String(state.nlp?.model_path || '');
-  const next = String(document.getElementById('nlp-model-path')?.value || '').trim();
-  nlpBusy = true;
-  try {
-    const resp = await api.post('/nlp', { model_path: next });
-    state.nlp = resp || state.nlp;
-    renderNLPMeta();
-    toast(t('nlp.updated'));
-  } catch (e) {
-    if (!state.nlp) state.nlp = {};
-    state.nlp.model_path = prev;
-    renderNLPMeta();
-    toast(t('nlp.updateFailed') + ': ' + e.message, 'error');
-  } finally {
-    nlpBusy = false;
-  }
-}
-
-async function updateNLPRouteByLang(on) {
-  if (nlpBusy) return;
-  const engine = String(state.nlp?.engine || 'heuristic').toLowerCase();
-  if (engine !== 'onnx') return;
-  const prev = !!state.nlp?.route_by_lang;
-  const next = !!on;
-  nlpBusy = true;
-  try {
-    const resp = await api.post('/nlp', { route_by_lang: next });
-    state.nlp = resp || state.nlp;
-    renderNLPMeta();
-    toast(t('nlp.updated'));
-  } catch (e) {
-    if (!state.nlp) state.nlp = {};
-    state.nlp.route_by_lang = prev;
-    renderNLPMeta();
-    toast(t('nlp.updateFailed') + ': ' + e.message, 'error');
-  } finally {
-    nlpBusy = false;
-  }
-}
-
-async function updateNLPModelPathEN() {
-  if (nlpBusy) return;
-  const engine = String(state.nlp?.engine || 'heuristic').toLowerCase();
-  if (engine !== 'onnx') return;
-  const prev = String(state.nlp?.model_path_en || '');
-  const next = String(document.getElementById('nlp-model-path-en')?.value || '').trim();
-  nlpBusy = true;
-  try {
-    const resp = await api.post('/nlp', { model_path_en: next });
-    state.nlp = resp || state.nlp;
-    renderNLPMeta();
-    toast(t('nlp.updated'));
-  } catch (e) {
-    if (!state.nlp) state.nlp = {};
-    state.nlp.model_path_en = prev;
-    renderNLPMeta();
-    toast(t('nlp.updateFailed') + ': ' + e.message, 'error');
-  } finally {
-    nlpBusy = false;
-  }
-}
-
-async function updateNLPModelPathZH() {
-  if (nlpBusy) return;
-  const engine = String(state.nlp?.engine || 'heuristic').toLowerCase();
-  if (engine !== 'onnx') return;
-  const prev = String(state.nlp?.model_path_zh || '');
-  const next = String(document.getElementById('nlp-model-path-zh')?.value || '').trim();
-  nlpBusy = true;
-  try {
-    const resp = await api.post('/nlp', { model_path_zh: next });
-    state.nlp = resp || state.nlp;
-    renderNLPMeta();
-    toast(t('nlp.updated'));
-  } catch (e) {
-    if (!state.nlp) state.nlp = {};
-    state.nlp.model_path_zh = prev;
-    renderNLPMeta();
-    toast(t('nlp.updateFailed') + ': ' + e.message, 'error');
-  } finally {
-    nlpBusy = false;
-  }
-}
-
-async function updateNLPMaxLoadedModels(v) {
-  if (nlpBusy) return;
-  const engine = String(state.nlp?.engine || 'heuristic').toLowerCase();
-  if (engine !== 'onnx') return;
-  const prev = Number(state.nlp?.max_loaded_models ?? 1);
-  const next = Number(String(v || '').trim());
-  if (Number.isNaN(next) || (next !== 1 && next !== 2)) {
-    document.getElementById('nlp-max-loaded').value = String(prev);
-    return;
-  }
-  nlpBusy = true;
-  try {
-    const resp = await api.post('/nlp', { max_loaded_models: next });
-    state.nlp = resp || state.nlp;
-    renderNLPMeta();
-    toast(t('nlp.updated'));
-  } catch (e) {
-    if (!state.nlp) state.nlp = {};
-    state.nlp.max_loaded_models = prev;
-    renderNLPMeta();
-    toast(t('nlp.updateFailed') + ': ' + e.message, 'error');
-  } finally {
-    nlpBusy = false;
-  }
-}
-
-async function updateNLPMinScore() {
-  if (nlpBusy) return;
-  const engine = String(state.nlp?.engine || 'heuristic').toLowerCase();
-  if (engine !== 'onnx') return;
-  const prev = Number(state.nlp?.min_score ?? 0);
-  const raw = String(document.getElementById('nlp-min-score')?.value || '').trim();
+async function updateNERMinScore() {
+  if (nerBusy) return;
+  const prev = Number(state.ner?.min_score ?? 0);
+  const raw = String(document.getElementById('ner-min-score')?.value || '').trim();
   const v = raw === '' ? 0 : Number(raw);
   if (Number.isNaN(v) || v < 0 || v > 1) {
-    document.getElementById('nlp-min-score').value = String(prev);
+    document.getElementById('ner-min-score').value = String(prev);
     return;
   }
-  nlpBusy = true;
+  nerBusy = true;
   try {
-    const resp = await api.post('/nlp', { min_score: v });
-    state.nlp = resp || state.nlp;
-    renderNLPMeta();
-    toast(t('nlp.updated'));
+    const resp = await api.post('/ner', { min_score: v });
+    state.ner = resp || state.ner;
+    renderNERMeta();
+    toast(t('ner.updated'));
   } catch (e) {
-    if (!state.nlp) state.nlp = {};
-    state.nlp.min_score = prev;
-    renderNLPMeta();
-    toast(t('nlp.updateFailed') + ': ' + e.message, 'error');
+    if (!state.ner) state.ner = {};
+    state.ner.min_score = prev;
+    renderNERMeta();
+    toast(t('ner.updateFailed') + ': ' + e.message, 'error');
   } finally {
-    nlpBusy = false;
+    nerBusy = false;
   }
 }
 
@@ -2515,7 +2359,7 @@ const MASK_VARS = {
   '*': { desc: { zh: '任意内容（可变长度）', en: 'Any content (variable length)' } }
 };
 
-// 常用模板：不需要用户理解正则
+// Common presets: no need for users to understand regex.
 const PRESET_RULES = [
   { id: 'email', name: { zh: '邮箱', en: 'Email' }, desc: { zh: '常见邮箱地址', en: 'Email address' }, pattern: '(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}', category: 'EMAIL' },
   { id: 'china_phone', name: { zh: '中国手机号', en: 'China phone' }, desc: { zh: '11位手机号（1[3-9] 开头）', en: '11-digit mobile (starts with 1[3-9])' }, pattern: '1[3-9]\\d{9}', category: 'CHINA_PHONE' },
@@ -2573,14 +2417,14 @@ function buildMaskRegex(maskStr) {
   while (i < maskStr.length) {
     const ch = maskStr[i];
 
-    // 转义：\\# 表示字面量 '#'
+    // Escape: \\# means a literal '#'.
     if (ch === '\\\\' && i + 1 < maskStr.length) {
       out += escapeRegex(maskStr[i + 1]);
       i += 2;
       continue;
     }
 
-    // '*'：任意内容（可变长度）
+    // '*': any content (variable length).
     if (ch === '*') {
       while (i < maskStr.length && maskStr[i] === '*') i++;
       out += '.*';
@@ -2589,7 +2433,7 @@ function buildMaskRegex(maskStr) {
 
     const token = tokens[ch];
     if (token) {
-      // 量词：#{11} / A{2,4}
+      // Quantifier: #{11} / A{2,4}
       if (i + 1 < maskStr.length && maskStr[i + 1] === '{') {
         const close = maskStr.indexOf('}', i + 2);
         if (close !== -1) {
@@ -2602,7 +2446,7 @@ function buildMaskRegex(maskStr) {
         }
       }
 
-      // 连续同类 token 合并为 {n}
+      // Merge consecutive same tokens into {n}
       let j = i + 1;
       while (j < maskStr.length && maskStr[j] === ch) j++;
       const count = j - i;
@@ -2621,9 +2465,9 @@ function buildMaskRegex(maskStr) {
 function buildFormatRegex(input) {
   const val = (input || '').trim();
   if (!val) return '';
-  // 兼容两种写法：
-  // - 掩码：###-####-#### / #{11}
-  // - 变量：{d{3}}-{d{4}}-{d{4}}
+  // Support two formats:
+  // - Mask: ###-####-#### / #{11}
+  // - Variables: {d{3}}-{d{4}}-{d{4}}
   const looksLegacy = /\{[a-zA-Z*@.]/.test(val);
   return looksLegacy ? buildLegacyFormatRegex(val) : buildMaskRegex(val);
 }
@@ -2823,8 +2667,8 @@ function confirmAddRule() {
     const prefix = document.getElementById('rule-prefix').value.trim();
     const suffix = document.getElementById('rule-suffix').value.trim();
     if (!prefix && !suffix) { toast(t('patterns.valueRequired'), 'error'); return; }
-    // 使用捕获组：引擎会只替换第一个捕获组，避免把整段文本都替换掉（对新手更友好）
-    // 默认仅匹配连续非空白字符，减少“.*”导致的过宽匹配。
+    // Use a capture group: the engine replaces only the first capture group to avoid replacing the whole text (more beginner-friendly).
+    // By default, match only consecutive non-whitespace characters to reduce overly broad matches caused by ".*".
     const mid = '([^\\s]{1,256})';
     pattern = (prefix ? escapeRegex(prefix) : '') + mid + (suffix ? escapeRegex(suffix) : '');
     category = 'AFFIX';

@@ -10,7 +10,7 @@ import (
 	"github.com/inkdust2021/vibeguard/internal/config"
 )
 
-// SubscriptionManager 周期性拉取并校验规则订阅，并在内容更新后触发回调（通常用于热重载）。
+// SubscriptionManager periodically syncs rule list subscriptions and triggers a callback when content changes (typically for hot-reload).
 type SubscriptionManager struct {
 	cfg      *config.Manager
 	onUpdate func()
@@ -54,8 +54,8 @@ func (m *SubscriptionManager) Stop() {
 func (m *SubscriptionManager) loop() {
 	defer close(m.done)
 
-	// 立即尝试同步一次（非阻塞主流程：失败只记录日志）。
-	m.syncOnce(true)
+	// Do an initial sync check on startup (not forced) to avoid bursty outbound requests that ignore update_interval.
+	m.syncOnce(false)
 
 	tk := time.NewTicker(5 * time.Minute)
 	defer tk.Stop()

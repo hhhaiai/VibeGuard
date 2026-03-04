@@ -2,13 +2,13 @@ package rulelist
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
 	"strings"
 
+	"github.com/inkdust2021/vibeguard/internal/ahocorasick"
 	"github.com/inkdust2021/vibeguard/internal/config"
 	"github.com/inkdust2021/vibeguard/internal/pii_next/recognizer"
 )
@@ -18,19 +18,21 @@ type keywordRule struct {
 	cat  string
 }
 
-// Recognizer 用于加载并执行“规则列表”匹配。
+// Recognizer loads and executes "rule list" matching.
 //
-// 规则格式（逐行解析，忽略空行/注释行）：
+// Rule format (parsed line-by-line; blank/comment lines are ignored):
 // - keyword <CATEGORY> <TEXT...>
 // - regex   <CATEGORY> <RE2_PATTERN...>
 //
-// 注释行：以 #、//、;、! 开头（去除前导空白后判断）。
-// CATEGORY 会被规范化为 [A-Z0-9_]；TEXT 会移除不可见字符并去除首尾空白。
+// Comment lines start with #, //, ;, or ! (after trimming leading whitespace).
+// CATEGORY is normalized to [A-Z0-9_]; TEXT strips invisible characters and trims whitespace.
 type Recognizer struct {
 	name     string
 	priority int
 
 	keywords []keywordRule
+	kwAC     *ahocorasick.Matcher
+	kwCats   []string
 	regex    []*regexp.Regexp
 	regexCat []string
 }
@@ -66,27 +68,28 @@ func (r *Recognizer) Recognize(input []byte) []recognizer.Match {
 
 	var out []recognizer.Match
 
-	for _, kw := range r.keywords {
-		if kw.text == "" || kw.cat == "" {
-			continue
-		}
-		idx := 0
-		for {
-			pos := bytes.Index(input[idx:], []byte(kw.text))
-			if pos == -1 {
-				break
+	if r.kwAC != nil && len(r.kwCats) > 0 {
+		// Rough estimate: each keyword hits ~0-1 times; preallocation reduces growth.
+		out = make([]recognizer.Match, 0, min(len(r.kwCats), 64))
+		r.kwAC.EachMatchNonOverlappingPerPattern(input, nil, func(id, start, end int) bool {
+			cat := ""
+			if id >= 0 && id < len(r.kwCats) {
+				cat = r.kwCats[id]
 			}
-			start := idx + pos
-			end := start + len(kw.text)
+			if cat == "" {
+				return true
+			}
 			out = append(out, recognizer.Match{
 				Start:    start,
 				End:      end,
-				Category: kw.cat,
+				Category: cat,
 				Priority: r.priority,
 				Source:   r.Name(),
 			})
-			idx = end
-		}
+			return true
+		})
+	} else {
+		out = nil
 	}
 
 	for i, re := range r.regex {
@@ -99,7 +102,7 @@ func (r *Recognizer) Recognize(input []byte) []recognizer.Match {
 				continue
 			}
 			start, end := loc[0], loc[1]
-			// 若存在捕获组，优先替换第一个捕获组范围（与 redact.Engine 语义保持一致）。
+			// If capture groups exist, prefer the first capture group's range (aligns with redact.Engine semantics).
 			if len(loc) >= 4 && loc[2] >= 0 && loc[3] >= 0 {
 				start, end = loc[2], loc[3]
 			}
@@ -127,10 +130,10 @@ func (r *Recognizer) Recognize(input []byte) []recognizer.Match {
 }
 
 type ParseOptions struct {
-	// Name 会用于识别器名称（用于审计/调试）。
+	// Name is used in the recognizer name (for audit/debug).
 	Name string
-	// Priority 越大越优先保留（用于与关键词/其他规则列表发生重叠时的冲突消解）。
-	// 注意：关键词匹配默认优先级为 100；建议规则列表默认在 10~90 之间。
+	// Higher Priority wins (used for overlap resolution with keywords/other rule lists).
+	// Note: keyword matches default to priority 100; rule lists are recommended to be in the 10~90 range.
 	Priority int
 }
 
@@ -154,7 +157,7 @@ func Parse(r io.Reader, opts ParseOptions) (*Recognizer, error) {
 
 	sc := bufio.NewScanner(r)
 	buf := make([]byte, 0, 64*1024)
-	sc.Buffer(buf, 1024*1024) // 允许较长正则行
+	sc.Buffer(buf, 1024*1024) // Allow long regex lines.
 
 	lineNo := 0
 	for sc.Scan() {
@@ -219,7 +222,28 @@ func Parse(r io.Reader, opts ParseOptions) (*Recognizer, error) {
 		return nil, err
 	}
 
+	if len(out.keywords) > 0 {
+		pats := make([]string, 0, len(out.keywords))
+		cats := make([]string, 0, len(out.keywords))
+		for _, kw := range out.keywords {
+			if kw.text == "" || kw.cat == "" {
+				continue
+			}
+			pats = append(pats, kw.text)
+			cats = append(cats, kw.cat)
+		}
+		out.kwAC = ahocorasick.New(pats)
+		out.kwCats = cats
+	}
+
 	return out, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func ParseFile(path string, opts ParseOptions) (*Recognizer, error) {

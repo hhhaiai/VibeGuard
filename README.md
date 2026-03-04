@@ -1,6 +1,6 @@
 <p align="center">
   <img src="./image/logo.jpg" alt="VibeGuard" width="720"><br><br>
-  <em>Rule-speed efficiency, NLP-grade accuracy—Seamless privacy for your AI coding vibe.</em><br><br>
+  <span>Uses just 1% memory while protecting 99% of your personal privacy.</span><br><br>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/inkdust2021/VibeGuard"></a>
   <a href="go.mod"><img alt="Go Version" src="https://img.shields.io/github/go-mod/go-version/inkdust2021/VibeGuard"></a>
   <a href="https://github.com/inkdust2021/VibeGuard/actions/workflows/ghcr.yml"><img alt="GHCR Build" src="https://img.shields.io/github/actions/workflow/status/inkdust2021/VibeGuard/ghcr.yml?label=ghcr"></a>
@@ -10,29 +10,27 @@
   English | <a href="README.zh-CN.md">中文</a>
 </p>
 
+
 ## Installation
 
 ```bash
 # Mac/Linux
-curl -fsSL https://raw.githubusercontent.com/inkdust2021/VibeGuard/main/install | bash
+curl -fsSL https://vibeguard.top/install | bash
 
 # Windows
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/inkdust2021/VibeGuard/main/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://vibeguard.top/install.ps1 | iex"
 ```
 
 ## Introduction
 
-VibeGuard is a lightweight MITM HTTPS proxy for protecting sensitive data when vibecoding. It aims to be out-of-the-box and minimize disruption, and it can also integrate optional NLP.
+VibeGuard is a lightweight MITM HTTPS proxy for protecting sensitive data when vibecoding. It aims to be out-of-the-box and minimize disruption, and it can also integrate optional NER.
 
-- Process-only proxy launcher: `vibeguard codex/claude/gemini/opencode/qwen...`
-- Admin UI: configure rules and review audit hits at `http://127.0.0.1:28657/manager/`
-- Placeholder restore for JSON / SSE responses
+**Privacy statement**: VibeGuard matches/redacts locally. It does not upload your raw sensitive content to any VibeGuard-controlled server or third-party analytics service; only **redacted** content is forwarded to your configured upstream AI API.
 
 ## Key Features
 
-- **Matching rules**: rule lists (official + third-party) + keywords (exact string match) + optional generic entity recognition (NLP).
-- **NLP (optional)**: supports BERT/DistilBERT-style **token-classification (NER) + WordPiece** models (requires `model.onnx`, `vocab.txt`, `labels.txt`, optional `vibeguard_ner.json`). See `docs/README.md`.
-- **Rule lists**: upload/subscribe to `.vgrules` lists (remote subscriptions support ed25519 signatures or pinned SHA-256). See `docs/README.md`.
+- **Matching rules**: rule lists (official + third-party) + keywords (exact string match) + optional named entity recognition (NER).
+- **Rule lists**: upload/subscribe to `.vgrules` lists (remote subscriptions only require a URL). See `docs/README.md`.
 - **Safe by default**: only scans text-like request bodies (e.g., `application/json`) with a 10MB limit.
 - **Admin UI**: configure rules/certificates/sessions at `/manager/`, review per-request redaction hits (Audit), and tail backend debug logs at `#/logs`.
 - **Admin auth**: the admin UI/API is protected by a password (set on first visit to `/manager/`).
@@ -44,30 +42,43 @@ VibeGuard is a lightweight MITM HTTPS proxy for protecting sensitive data when v
 
 ```mermaid
 flowchart LR
-  C[Client: Codex / Claude / IDE] -->|HTTPS via proxy| P[Proxy: MITM TLS]
-  P -->|Request body: text-like only| PIPE[Redaction pipeline]
-  PIPE -->|Replace with placeholders| U[Upstream AI API]
-  U -->|Response JSON/SSE| S[Restore engine]
-  S -->|Restore originals| C
+  C[Client: Codex / Claude / IDE] -->|HTTPS| P[Proxy: MITM TLS]
+  P -->|Text-like bodies only| PIPE[Redaction pipeline]
+  PIPE -->|Placeholders| UP[Upstream AI API]
+  UP -->|JSON/SSE| R[Restore engine]
+  R -->|Restore originals| C
 
-  subgraph DET[Detectors - composable]
-    KW[Keywords]
-    RL[Rule Lists - .vgrules]
-    NLP[NLP Entities]
+  subgraph DET[Detectors]
+    KW[Keywords<br/>Aho-Corasick]
+    RL[Rule lists: .vgrules]
+    NER[NER: external Presidio]
   end
   KW --> PIPE
   RL --> PIPE
-  NLP --> PIPE
+  NER --> PIPE
 
-  UI[Admin UI /manager/] -->|Edit rules| CFG[Config]
-  CFG -->|Hot reload| PIPE
-  CFG -->|Intercept mode| P
+  subgraph RULES[Rule sources]
+    DEF[Default rules<br/>built-in]
+    LOCAL[Local rules<br/>~/.vibeguard/rules/local]
+    SUB[Remote subscriptions<br/>auto update]
+    CACHE[Subscription cache<br/>~/.vibeguard/rules/subscriptions]
+  end
+  DEF --> RL
+  LOCAL --> RL
+  SUB --> CACHE
+  CACHE --> RL
+
+  UI[Admin UI /manager/] --> CFG[Config (hot reload)]
+  UI --> LOCAL
+  UI --> SUB
+  CFG --> PIPE
+  CFG --> P
 
   PIPE <--> SES[Session store: TTL + WAL]
-  S <--> SES
+  R <--> SES
 
-  P -->|Audit events| A[Audit]
-  UI --> A
+  P --> AUD[Audit]
+  UI --> AUD
 ```
 
 ## Screenshot
@@ -79,17 +90,16 @@ flowchart LR
 - First visit to `http://127.0.0.1:28657/manager/` will ask you to set an admin password.
 - The password is stored as a bcrypt hash in `~/.vibeguard/admin_auth.json` (permissions: `0600`).
 - Forgot it? Stop VibeGuard, delete `~/.vibeguard/admin_auth.json`, then refresh `/manager/` to set a new one.
-- Keep the admin UI bound to localhost (`127.0.0.1`) and avoid exposing the port to LAN/public networks.
 
 ## Uninstall
 
 macOS/Linux:
 
 ```bash
-bash uninstall.sh
-bash uninstall.sh --purge
-bash uninstall.sh --docker
-bash uninstall.sh --docker --docker-volume
+curl -fsSL https://vibeguard.top/uninstall | bash
+curl -fsSL https://vibeguard.top/uninstall | bash -s -- --purge
+curl -fsSL https://vibeguard.top/uninstall | bash -s -- --docker
+curl -fsSL https://vibeguard.top/uninstall | bash -s -- --docker --docker-volume
 ```
 
 Note: `--docker-volume` removes the `vibeguard-data` Docker volume (container config + CA will be lost).
@@ -97,8 +107,8 @@ Note: `--docker-volume` removes the `vibeguard-data` Docker volume (container co
 Windows (PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\\uninstall.ps1
-powershell -ExecutionPolicy Bypass -File .\\uninstall.ps1 -Purge
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((irm https://vibeguard.top/uninstall.ps1)))"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((irm https://vibeguard.top/uninstall.ps1))) -Purge"
 ```
 
 The uninstallers try to remove the trusted CA (“VibeGuard CA”) automatically. If it fails (e.g., permissions), remove it manually.
@@ -108,6 +118,26 @@ The uninstallers try to remove the trusted CA (“VibeGuard CA”) automatically
 - Global: `~/.vibeguard/config.yaml`
 - Project override: `.vibeguard.yaml`
 - Override path: `VIBEGUARD_CONFIG=/path/to/config.yaml`
+
+## Usage
+
+Use it in your coding CLI (does not affect your current terminal):
+
+```bash
+vibeguard claude [args...]  # replace with: codex / opencode / qwen / gemini
+```
+
+Use it for a specific command (does not affect your current terminal):
+
+```bash
+vibeguard run <command> [args...]
+```
+
+Use it in an IDE/other apps:
+
+```bash
+Set proxy to http://127.0.0.1:28657
+```
 
 ## CLI Commands
 
@@ -143,7 +173,7 @@ vibeguard opencode/claude/codex... [args...]
 vibeguard run <command> [args...]
 ```
 
-### Init wizard
+### Init wizard (not needed if using install script)
 
 ```bash
 vibeguard init [-c PATH]
@@ -151,7 +181,7 @@ vibeguard init [-c PATH]
 
 Interactive config + CA generation.
 
-### Trust CA certificate (required for HTTPS MITM)
+### Trust CA certificate (not needed if using install script)
 
 ```bash
 vibeguard trust --mode system|user|auto [-c PATH]
@@ -196,7 +226,6 @@ vibeguard [command] --help
 ## How to Verify It Works (Vibecoding)
 
 1. Start the proxy: `vibeguard start` (the installer can do this automatically).
-2. Trust the CA once: `vibeguard trust --mode system` (may require `sudo`/Administrator).
 3. Launch your tool via VibeGuard (`vibeguard codex/claude/...`) or set your IDE/app proxy URL to `http://127.0.0.1:28657`.
 4. In `/manager/`, check the **Audit** panel: each request shows whether redaction was attempted and how many matches were replaced.
 

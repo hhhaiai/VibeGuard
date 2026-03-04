@@ -1,14 +1,14 @@
-# VibeGuard 卸载脚本（中英双语） / VibeGuard uninstaller (ZH/EN)
+# VibeGuard uninstaller script (bilingual strings; comments in English)
 #
-# 默认会做什么 / What it removes by default:
-# - 尝试停止后台代理 / Try to stop background proxy
-# - 移除开机自启（计划任务 / HKCU Run） / Remove autostart (Scheduled Task / HKCU Run)
-# - 删除安装目录中的 vibeguard.exe / Remove vibeguard.exe in install dir
-# - 清理 PowerShell Profile 中由 install.ps1 写入的 helper（# VibeGuard SHELL） / Remove injected profile helper
+# What it removes by default:
+# - Try to stop background proxy
+# - Remove autostart (Scheduled Task / HKCU Run)
+# - Remove vibeguard.exe in install dir
+# - Remove the helper injected into PowerShell profile by install.ps1 (# VibeGuard SHELL)
 #
-# 可选 / Optional:
-# - -Purge 删除 ~/.vibeguard（配置/证书/日志/WAL） / Remove ~/.vibeguard
-# - -RemovePath 从用户 PATH 移除安装目录 / Remove install dir from user PATH
+# Optional:
+# - -Purge: remove ~/.vibeguard (config/certs/logs/WAL)
+# - -RemovePath: remove install dir from user PATH
 
 param(
   [string]$InstallDir = (Join-Path $HOME ".local\\bin"),
@@ -136,9 +136,9 @@ function RemoveProfileHelper([string]$ProfilePath) {
   try { $text = Get-Content -LiteralPath "$ProfilePath" -Raw -ErrorAction Stop } catch { return $false }
   if ($null -eq $text -or $text -notmatch '# VibeGuard SHELL') { return $false }
 
-  # 删除从 marker 到 function 结束的区块（和 install.ps1 注入内容保持一致）
-  # 注意：function 内部会有缩进的 "  }"（例如 if 块结束），不能误匹配；
-  # 这里要求结束行必须以 "}" 开头（无缩进），对应 install.ps1 注入的 function 结束行。
+  # Remove the block from marker to the end of the function (matches what install.ps1 injects).
+  # Note: the function body may contain indented "  }" lines (e.g. end of if blocks); do not mis-match them.
+  # We require the ending line to start with "}" (no indentation), matching the injected function's final brace.
   $pattern = '(?ms)^[ \t]*# VibeGuard SHELL.*?^\}\s*\r?\n?'
   $newText = [System.Text.RegularExpressions.Regex]::Replace($text, $pattern, "")
   if ($newText -eq $text) { return $false }
@@ -162,17 +162,17 @@ function FindVibeGuardExe([string]$Dir) {
 }
 
 function TryStopProxy([string]$VgPath, [string]$ConfigDir) {
-  # 尽量先用 CLI stop（里面已包含 schtasks/launchctl/systemctl/pid 的多种策略）
+  # Prefer CLI stop first (it already contains multiple strategies: schtasks/launchctl/systemctl/pid).
   if (-not [string]::IsNullOrWhiteSpace($VgPath) -and (Test-Path -LiteralPath "$VgPath")) {
     try { & "$VgPath" "stop" | Out-Null } catch { }
   }
 
-  # 退化：尝试结束计划任务
+  # Fallback: try ending the scheduled task.
   if ($null -ne (Get-Command "schtasks" -ErrorAction SilentlyContinue)) {
     try { & schtasks /End /TN "VibeGuard" 2>$null | Out-Null } catch { }
   }
 
-  # 退化：按 PID 文件杀进程
+  # Fallback: kill via PID file.
   $pidFile = Join-Path "$ConfigDir" "vibeguard.pid"
   if (Test-Path -LiteralPath "$pidFile") {
     try {
@@ -187,7 +187,7 @@ function TryStopProxy([string]$VgPath, [string]$ConfigDir) {
 }
 
 function RemoveAutostart() {
-  # 计划任务（install.ps1 默认任务名固定 VibeGuard）
+  # Scheduled task (install.ps1 uses fixed task name: VibeGuard).
   if ($null -ne (Get-Command "Unregister-ScheduledTask" -ErrorAction SilentlyContinue)) {
     try {
       Unregister-ScheduledTask -TaskName "VibeGuard" -Confirm:$false -ErrorAction Stop | Out-Null
@@ -197,7 +197,7 @@ function RemoveAutostart() {
     try { & schtasks /Delete /F /TN "VibeGuard" 2>$null | Out-Null; Say "已删除计划任务：VibeGuard" "Removed scheduled task: VibeGuard" } catch { }
   }
 
-  # HKCU Run fallback（install.ps1 可能会退化到这里）
+  # HKCU Run fallback (install.ps1 may fall back to this).
   $runKey = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
   try {
     if (Get-ItemProperty -Path "$runKey" -Name "VibeGuard" -ErrorAction SilentlyContinue) {
@@ -253,7 +253,7 @@ function RemoveProxyEnvIfMatches([string]$ProxyUrl, [string]$NoProxy) {
     }
   }
 
-  # 当前会话的小写环境变量也尽量清理（不动 User 级）
+  # Also clean lowercase env vars in the current session (do not touch User-level ones).
   foreach ($n in @("https_proxy", "http_proxy", "no_proxy")) {
     try { Remove-Item -Path ("Env:" + $n) -ErrorAction SilentlyContinue | Out-Null } catch { }
   }
@@ -269,7 +269,7 @@ function RemoveUserPathEntry([string]$Dir) {
   $newUserPath = ($newParts -join ';')
   [Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
 
-  # 当前会话同步
+  # Sync current session.
   $curParts = $env:Path -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
   $env:Path = (($curParts | Where-Object { -not $_.Equals($Dir, [System.StringComparison]::OrdinalIgnoreCase) }) -join ';')
   return $true

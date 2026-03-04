@@ -9,11 +9,11 @@ import (
 	"github.com/inkdust2021/vibeguard/internal/restore"
 )
 
-// SSERestoringReader wraps an io.ReadCloser and restores placeholders in SSE events。
+// SSERestoringReader wraps an io.ReadCloser and restores placeholders in SSE events.
 //
-// 关键点：OpenAI/兼容 API 的 SSE 流式输出通常以“delta 片段”逐段发送文本，
-// 占位符可能被拆成多段（跨多个 SSE event），这会导致“逐 event 直接替换”失效。
-// 因此这里针对 delta 做“跨 event 的流式还原”，并仍保留对整段 event 的兜底还原。
+// Key point: SSE streaming outputs from OpenAI-compatible APIs often deliver text as incremental "delta" fragments.
+// Placeholders may be split across multiple SSE events, so "replace per event" can fail.
+// This reader restores placeholders across delta events, while still keeping a whole-event fallback.
 type SSERestoringReader struct {
 	upstream io.ReadCloser
 	restorer *restore.Engine
@@ -21,8 +21,8 @@ type SSERestoringReader struct {
 	outBuf   bytes.Buffer // restored bytes ready for downstream
 	readBuf  []byte       // reusable upstream read buffer
 
-	// pendingDelta 暂存“最近一个 delta event”，用于在流结束时把最后的尾巴 flush 到它里面，
-	// 避免尾部保留的前缀片段丢失（例如恰好以 "__V" 结尾）。
+	// pendingDelta stores the most recent delta event. On stream end, we flush the tail into it
+	// to avoid losing buffered placeholder prefixes (e.g. the stream ends with "__V").
 	pendingDelta *pendingDeltaEvent
 	textRestorer *textStreamRestorer
 }
@@ -33,8 +33,8 @@ func NewSSERestoringReader(upstream io.ReadCloser, restorer *restore.Engine) *SS
 		upstream: upstream,
 		restorer: restorer,
 		readBuf:  make([]byte, 4096),
-		// 这里暂按“单一文本流”处理（Codex/Responses API 的常见场景）。
-		// 如后续需要支持多输出并行（output_index/content_index），可扩展为 map。
+		// Treat this as a single text stream for now (common in Codex/Responses API).
+		// If we need parallel outputs later (output_index/content_index), extend to a map.
 		textRestorer: newTextStreamRestorer(restorer),
 	}
 }
@@ -78,7 +78,7 @@ func (r *SSERestoringReader) Read(p []byte) (int, error) {
 				copy(remaining, r.buf.Bytes())
 				r.buf.Reset()
 
-				// 流末尾的残余数据仍做一次兜底还原
+				// Still do one fallback restore for remaining tail bytes at end of stream.
 				restored := r.restorer.Restore(remaining)
 				r.outBuf.Write(restored)
 				if r.outBuf.Len() > 0 {
@@ -121,7 +121,7 @@ func (e *pendingDeltaEvent) emit(extra string) []byte {
 		out.Write(ln)
 		out.Write(e.lineSep)
 	}
-	// data 支持多行，这里输出单行 JSON（更利于下游解析）
+	// data may span multiple lines; emit single-line JSON for easier downstream parsing.
 	out.Write([]byte("data: "))
 	out.Write(b)
 	out.Write(e.lineSep)
@@ -157,7 +157,7 @@ func (t *textStreamRestorer) Feed(fragment string) string {
 	}
 
 	out := t.eng.Restore(t.buf[:cut])
-	// 保留尾巴（可能是占位符前缀/未完整占位符），等待下一段补齐
+	// Keep the tail (placeholder prefix or incomplete placeholder) and wait for the next fragment.
 	t.buf = append(t.buf[:0], t.buf[cut:]...)
 	return string(out)
 }
@@ -190,15 +190,18 @@ func safeEmitCut(data []byte, eng *restore.Engine) int {
 		leadingUnderscores = 0
 	}
 
-	// 1) 处理“完整前缀已出现但占位符还没完整到达”的情况：保留从最后一个前缀开始到末尾。
+	// 1) Handle "full prefix exists but the placeholder has not fully arrived yet":
+	// keep bytes from the last prefix to the end.
 	//
-	// 特别注意：占位符本身以 "__" 结尾，而 prefix 也以 "_" 开头，简单的“保留后缀前缀片段”
-	// 会误把占位符末尾 "__" 当作“下一个占位符前缀的开始”，从而把完整占位符拆开输出，导致无法还原。
-	// 因此这里优先判断“最后一个 prefix 是否已构成完整占位符且刚好到末尾”，若是则可直接输出全部。
+	// Important: placeholders may end with "__", and the prefix also starts with "_".
+	// Naively keeping a suffix can misread the ending "__" as the start of the next prefix,
+	// splitting a complete placeholder and breaking restoration.
+	// Prefer detecting whether the last prefix already forms a complete placeholder at EOF; if so, we can emit all bytes.
 	lastBare := bytes.LastIndex(data, prefixBare)
 	if lastBare != -1 {
 		start := lastBare
-		// 若 bare 前面正好有 prefix 的前导下划线，把起点回退到完整 prefix，避免把 "__" 拆开输出。
+		// If the bare prefix is preceded by the prefix's leading underscores, rewind to the full prefix
+		// to avoid splitting "__" across emissions.
 		if leadingUnderscores > 0 && lastBare >= leadingUnderscores {
 			all := true
 			for i := lastBare - leadingUnderscores; i < lastBare; i++ {
@@ -214,11 +217,12 @@ func safeEmitCut(data []byte, eng *restore.Engine) int {
 
 		end, ok := eng.MatchAt(data, start)
 		if ok {
-			// 注意：引擎为了兼容“模型丢掉尾部 __”的情况，允许占位符末尾 "__" 可选。
-			// 但在流式场景中，"__" 可能被拆到下一段输出；若此时提前输出并还原占位符，
-			// 下一段再到来的 "__" 就会作为普通文本残留（表现为原文后多出 "__"）。
+			// Note: to handle cases where models drop the trailing "__", the engine allows the "__" suffix to be optional.
+			// In streaming scenarios, however, "__" can be split into the next chunk; if we restore too early,
+			// the later "__" will remain as plain text (appearing as extra "__" after the restored text).
 			//
-			// 因此当匹配到的占位符刚好贴着 buffer 末尾，且本段未包含尾部 "__" 时，先保留不输出，等待下一段补齐。
+			// So if the matched placeholder is exactly at the buffer end and this chunk does not include "__",
+			// keep it and wait for the next chunk.
 			token := data[start:end]
 			hasSuffix := bytes.HasSuffix(token, []byte("__"))
 			const maxTail = 512
@@ -230,7 +234,8 @@ func safeEmitCut(data []byte, eng *restore.Engine) int {
 				return len(data)
 			}
 
-			// end < len(data)：后面还有数据。若剩余部分仅由 "_" 组成（常见于 "__" 被拆分），也需要保留。
+			// end < len(data): there is more data. If the remainder contains only "_" (common when "__" is split),
+			// keep it as well.
 			if !hasSuffix && len(data)-start <= maxTail {
 				rem := data[end:]
 				if len(rem) > 0 && len(rem) <= 2 {
@@ -247,11 +252,11 @@ func safeEmitCut(data []byte, eng *restore.Engine) int {
 				}
 			}
 
-			// 末尾的占位符已完整（且后面还有数据）：可以安全输出全部
+			// The trailing placeholder is complete (and there is more data): safe to emit all bytes.
 			return len(data)
 		}
 		if !ok {
-			// 最大保留长度：避免误把普通文本中的 "__VG_" 当作占位符导致无限缓存
+			// Max tail length: avoid infinite buffering when "__VG_" appears in normal text.
 			const maxTail = 512
 			if len(data)-start <= maxTail {
 				return start
@@ -259,7 +264,7 @@ func safeEmitCut(data []byte, eng *restore.Engine) int {
 		}
 	}
 
-	// 2) 处理“前缀被拆分到末尾”的情况：保留最长后缀（最多 len(prefix)-1）
+	// 2) Handle "prefix split at the end": keep the longest suffix (at most len(prefix)-1).
 	partial := suffixPrefixLen(data, prefixFull)
 	if !bytes.Equal(prefixBare, prefixFull) {
 		if p := suffixPrefixLen(data, prefixBare); p > partial {
@@ -308,13 +313,13 @@ func findSSEEventDelimiter(data []byte) (idx int, sepLen int) {
 	}
 }
 
-// RestoringReader 对任意“连续字节流”做占位符还原（支持跨 chunk 边界）。
+// RestoringReader restores placeholders for arbitrary "continuous byte streams" (supports across chunk boundaries).
 //
-// 适用场景：
-//   - 上游返回 application/json 但使用 chunked/长连接方式流式输出（非标准 SSE），
-//     这时若整段 ReadAll 再还原，会导致下游长时间无输出（表现为“卡住”）。
+// Use cases:
+//   - Upstream returns application/json but streams via chunked/long connections (non-standard SSE).
+//     Reading all before restoring can cause long periods of no downstream output (appears "stuck").
 //
-// 注意：该 Reader 不尝试理解 JSON 结构，仅做字节级占位符匹配与还原。
+// Note: this Reader does not attempt to understand JSON structure; it only does byte-level placeholder matching/restoring.
 type RestoringReader struct {
 	upstream  io.ReadCloser
 	restorer  *restore.Engine
@@ -341,7 +346,7 @@ func (r *RestoringReader) Read(p []byte) (int, error) {
 
 		n, err := r.upstream.Read(r.readBuf)
 		if n > 0 {
-			// 使用与 SSE 同一套“安全切割”策略，避免把占位符拆开输出导致无法还原
+			// Use the same "safe cut" strategy as SSE to avoid splitting placeholders across reads.
 			if r.textState != nil {
 				emitted := r.textState.Feed(string(r.readBuf[:n]))
 				if emitted != "" {
@@ -357,7 +362,7 @@ func (r *RestoringReader) Read(p []byte) (int, error) {
 		}
 
 		if err != nil {
-			// flush 尾巴（仅一次）
+			// Flush tail (only once).
 			if !r.flushed {
 				r.flushed = true
 				if r.textState != nil {
@@ -397,23 +402,23 @@ func (r *SSERestoringReader) handleEvent(event []byte) {
 
 	parsed, ok := parseSSEEvent(event)
 	if !ok {
-		// 无法解析就按字节兜底还原
+		// If parsing fails, do a byte-level fallback restore.
 		r.flushPendingDelta(false)
 		r.outBuf.Write(r.restorer.Restore(event))
 		return
 	}
 
-	// [DONE] / done / completed 等终止事件：先 flush pendingDelta（带尾巴），再输出终止事件
+	// Terminal events like [DONE] / done / completed: flush pendingDelta (with tail) first, then emit the terminal event.
 	if parsed.isTerminal {
 		r.flushPendingDelta(true)
 		r.outBuf.Write(r.restorer.Restore(event))
 		return
 	}
 
-	// 尝试把 data 当 JSON 解析，看是否是 delta event
+	// Try parsing data as JSON to check whether this is a delta event.
 	obj, loc, isDelta := parseDeltaJSON(parsed)
 	if !isDelta {
-		// 非 delta：若 JSON 的 type 显示为 done/completed，则认为是终止事件，flush 尾巴
+		// Non-delta: if JSON type indicates done/completed, treat it as terminal and flush tail.
 		if terminalByJSONType(parsed) {
 			r.flushPendingDelta(true)
 		} else {
@@ -423,12 +428,12 @@ func (r *SSERestoringReader) handleEvent(event []byte) {
 		return
 	}
 
-	// delta event：先输出上一个 pendingDelta，再暂存当前 delta（延迟一个 event，用于流结束 flush 尾巴）
+	// Delta event: emit the previous pendingDelta first, then store current delta (one-event delay for tail flush on EOF).
 	r.flushPendingDelta(false)
 
 	deltaStr, ok := getDeltaText(obj, loc)
 	if !ok {
-		// 理论上 parseDeltaJSON 已保证 loc 可用；若异常，回退为逐字节还原，避免破坏下游协议
+		// parseDeltaJSON should guarantee a valid loc; if not, fall back to byte-level restore to avoid breaking downstream protocol.
 		r.outBuf.Write(r.restorer.Restore(event))
 		return
 	}
@@ -516,7 +521,7 @@ func parseSSEEvent(event []byte) (parsedEvent, bool) {
 	p.data = bytes.Join(dataLines, []byte("\n"))
 	dataTrim := bytes.TrimSpace(p.data)
 
-	// 终止判定：尽量宽松，避免尾巴丢失
+	// Terminal detection: keep it permissive to avoid losing buffered tail.
 	if bytes.Equal(dataTrim, []byte("[DONE]")) {
 		p.isTerminal = true
 		return p, true
@@ -596,7 +601,7 @@ func parseDeltaJSON(p parsedEvent) (obj map[string]any, loc deltaTextLocation, o
 		return nil, deltaTextLocation{}, false
 	}
 
-	// 判定 delta event：优先看 SSE event 名，其次看 JSON 内的 type
+	// Delta detection: prefer SSE event name, then fall back to JSON type.
 	nameLower := strings.ToLower(p.eventName)
 	typLower := ""
 	if typ, ok := obj["type"].(string); ok {
@@ -607,7 +612,7 @@ func parseDeltaJSON(p parsedEvent) (obj map[string]any, loc deltaTextLocation, o
 		return nil, deltaTextLocation{}, false
 	}
 
-	// OpenAI/兼容实现：{"delta":"..."}
+	// OpenAI-compatible implementations: {"delta":"..."}
 	if _, ok := obj["delta"].(string); ok {
 		return obj, deltaTextLocation{root: "delta"}, true
 	}
@@ -618,7 +623,7 @@ func parseDeltaJSON(p parsedEvent) (obj map[string]any, loc deltaTextLocation, o
 		}
 	}
 
-	// 未识别：不要把 delta map 误当成 string 写回，否则会破坏协议结构。
+	// Unrecognized: do not write delta maps back as strings, or the protocol structure would be corrupted.
 	return nil, deltaTextLocation{}, false
 }
 

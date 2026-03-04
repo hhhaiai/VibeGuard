@@ -26,7 +26,7 @@ func (b *captureBuffer) Write(p []byte) (int, error) {
 	}
 	b.total += len(p)
 	if b.max == 0 {
-		// max=0 表示不抓取 body（仅统计大小）。
+		// max=0 means do not capture body (only count total bytes).
 		b.truncated = true
 		return len(p), nil
 	}

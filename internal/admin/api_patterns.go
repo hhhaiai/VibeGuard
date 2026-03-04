@@ -115,7 +115,7 @@ func (a *Admin) addPattern(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 基本校验：尽量在写入配置前阻止无效规则，减少“添加成功但不生效”的困惑
+	// Basic validation: reject invalid rules before writing config to reduce "added successfully but not effective" confusion.
 	switch req.Type {
 	case "keyword":
 		if config.SanitizePatternValue(req.Value) == "" {
@@ -130,7 +130,7 @@ func (a *Admin) addPattern(w http.ResponseWriter, r *http.Request) {
 	if err := a.config.Update(func(c *config.Config) {
 		switch req.Type {
 		case "keyword":
-			// 清理不可见字符，避免规则“看起来已添加但实际不匹配”
+			// Strip invisible characters to avoid "looks added but doesn't match" surprises.
 			val := config.SanitizePatternValue(req.Value)
 			if val == "" {
 				return

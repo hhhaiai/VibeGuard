@@ -23,11 +23,11 @@ type Manager struct {
 	created  map[string]time.Time // placeholder -> creation time
 	stopChan chan struct{}
 	wal      *WAL
-	// randomSecret 为进程启动时生成的随机 key（默认模式：仅在本进程内稳定）。
-	// deterministicSecret 为“跨进程稳定占位符”模式下使用的 key（通常由 CA 私钥派生）。
-	// 注意：
-	// - 两者都不会写入配置/日志；
-	// - deterministicSecret 一旦变化（例如重新生成 CA），同一原文会得到不同占位符。
+	// randomSecret is a random key generated on process start (default mode: stable within this process only).
+	// deterministicSecret is the key used in "deterministic placeholders" mode (typically derived from the CA private key).
+	// Notes:
+	// - Neither key is written to config/logs.
+	// - If deterministicSecret changes (e.g. the CA is regenerated), the same original text will produce different placeholders.
 	randomSecret        []byte
 	deterministicSecret []byte
 	deterministicOn     bool
@@ -37,7 +37,8 @@ type Manager struct {
 func NewManager(ttl time.Duration, maxSize int) *Manager {
 	randomSecret := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, randomSecret); err != nil {
-		// 极端情况下（例如系统熵源不可用），退化为时间种子；仍可避免“可被上游离线撞库”的确定性哈希占位符。
+		// In extreme cases (e.g. entropy source unavailable), fall back to a time-based seed.
+		// This still avoids deterministic placeholders that can be brute-forced offline by an upstream.
 		sum := sha256.Sum256([]byte(fmt.Sprintf("fallback-%d", time.Now().UnixNano())))
 		randomSecret = make([]byte, 32)
 		copy(randomSecret, sum[:])
@@ -116,7 +117,7 @@ func (m *Manager) LookupReverse(original string) (string, bool) {
 }
 
 // GeneratePlaceholder creates a placeholder for the given original value (does NOT register it).
-// 使用 HMAC-SHA256(key, original) 截断生成 token：同一 original 稳定映射，同时降低被字典猜测的风险。
+// Uses a truncated HMAC-SHA256(key, original) token: stable mapping for the same original, while reducing dictionary-guessing risk.
 func (m *Manager) GeneratePlaceholder(original, category, prefix string) string {
 	key := m.placeholderKey()
 	h := hmac.New(sha256.New, key)
@@ -156,9 +157,9 @@ func (m *Manager) placeholderKey() []byte {
 	return randKey
 }
 
-// SetDeterministicPlaceholders 切换“跨进程稳定占位符”模式：
-// - enabled=false：使用进程启动时的随机 key（仅进程内稳定）；
-// - enabled=true：使用传入的 key32（应由 CA 私钥派生）。
+// SetDeterministicPlaceholders toggles "deterministic placeholders" mode:
+// - enabled=false: use a per-process random key (stable within this process only).
+// - enabled=true: use the provided key32 (should be derived from the CA private key).
 func (m *Manager) SetDeterministicPlaceholders(enabled bool, key32 []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -175,7 +176,7 @@ func (m *Manager) SetDeterministicPlaceholders(enabled bool, key32 []byte) error
 	return nil
 }
 
-// DeterministicPlaceholdersEnabled 返回“跨进程稳定占位符”是否处于生效状态。
+// DeterministicPlaceholdersEnabled reports whether deterministic placeholders are currently active.
 func (m *Manager) DeterministicPlaceholdersEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

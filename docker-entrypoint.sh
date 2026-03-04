@@ -8,8 +8,8 @@ mkdir -p "${cfg_dir}"
 
 if [ ! -f "${cfg_path}" ]; then
   cat >"${cfg_path}" <<'YAML'
-# VibeGuard Docker 默认配置
-# - 注意：容器内必须监听 0.0.0.0，宿主机再用端口映射限制暴露范围（建议只映射到 127.0.0.1）
+# VibeGuard Docker default configuration
+# - Note: the container must listen on 0.0.0.0; restrict exposure on the host via port mapping (recommended: bind to 127.0.0.1 only)
 proxy:
   listen: 0.0.0.0:28657
   placeholder_prefix: "__VG_"
@@ -43,4 +43,3 @@ YAML
 fi
 
 exec /usr/local/bin/vibeguard "$@"
-

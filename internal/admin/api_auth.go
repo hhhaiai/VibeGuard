@@ -62,7 +62,7 @@ func (a *Admin) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Setup 成功后直接创建会话，避免用户再手动登录一次。
+	// Create a session immediately after setup to avoid requiring a separate manual login.
 	a.auth.mu.Lock()
 	token, _, err := a.auth.CreateSessionLocked()
 	a.auth.mu.Unlock()

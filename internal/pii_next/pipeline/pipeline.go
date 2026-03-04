@@ -8,13 +8,13 @@ import (
 	"github.com/inkdust2021/vibeguard/internal/session"
 )
 
-// Pipeline 将多个 Recognizer 的命中结果合并，并执行统一替换。
+// Pipeline merges hits from multiple Recognizers and performs unified replacement.
 type Pipeline struct {
 	reg    *recognizer.Registry
 	sess   *session.Manager
 	prefix string
-	// exclude 为“精确跳过替换”的白名单：命中值完全等于其中任意一项时，不进行替换。
-	// 说明：这里不支持正则/模糊匹配，保持与现有 vibeguard exclude 语义一致。
+	// exclude is an exact-match allowlist: if a hit's value equals any entry, it will not be replaced.
+	// Note: regex/fuzzy matching is intentionally not supported to match existing vibeguard exclude semantics.
 	exclude map[string]struct{}
 }
 
@@ -26,7 +26,7 @@ func New(sess *session.Manager, prefix string, recs ...recognizer.Recognizer) *P
 	}
 }
 
-// SetExclude 设置精确跳过列表。
+// SetExclude sets the exact-match skip list.
 func (p *Pipeline) SetExclude(values []string) {
 	if p == nil {
 		return
@@ -49,7 +49,7 @@ func (p *Pipeline) SetExclude(values []string) {
 	p.exclude = m
 }
 
-// RedactWithMatches 执行识别+替换并返回详细命中信息。
+// RedactWithMatches runs recognition + replacement and returns detailed match info.
 func (p *Pipeline) RedactWithMatches(input []byte) ([]byte, []redact.Match) {
 	if p == nil || p.reg == nil || p.sess == nil {
 		return append([]byte(nil), input...), nil
@@ -76,7 +76,7 @@ func (p *Pipeline) RedactWithMatches(input []byte) ([]byte, []redact.Match) {
 		return append([]byte(nil), input...), nil
 	}
 
-	// 先按优先级/长度排序，再做“贪心选取”以避免重叠导致的碎片替换。
+	// Sort by priority/length, then greedily select non-overlapping matches to avoid fragmented replacements.
 	sort.Slice(cands, func(i, j int) bool {
 		if cands[i].Priority != cands[j].Priority {
 			return cands[i].Priority > cands[j].Priority
@@ -96,7 +96,7 @@ func (p *Pipeline) RedactWithMatches(input []byte) ([]byte, []redact.Match) {
 		start int
 		end   int
 	}
-	var covered []span // 按 start 升序且互不重叠
+	var covered []span // Ordered by start asc; non-overlapping.
 	overlaps := func(s span) bool {
 		i := sort.Search(len(covered), func(i int) bool { return covered[i].start >= s.end })
 		if i == 0 {
@@ -121,7 +121,7 @@ func (p *Pipeline) RedactWithMatches(input []byte) ([]byte, []redact.Match) {
 		insert(s)
 	}
 
-	// 按 start 逆序替换，避免下标漂移。
+	// Replace in reverse start order to avoid index shifting.
 	sort.Slice(selected, func(i, j int) bool {
 		if selected[i].Start != selected[j].Start {
 			return selected[i].Start > selected[j].Start

@@ -5,11 +5,11 @@ import (
 	"unicode"
 )
 
-// SanitizePatternValue 清理用户输入的匹配值：
-// - 去除前后空白
-// - 移除不可见控制字符/格式字符（如 0x1F、BOM、零宽字符等）
+// SanitizePatternValue sanitizes a user-provided pattern value:
+// - trim leading/trailing whitespace
+// - remove invisible control/format characters (e.g. 0x1F, BOM, zero-width chars)
 //
-// 目的：避免“看起来一样但实际不匹配”的隐形字符导致规则不生效。
+// Goal: avoid "looks the same but doesn't match" issues caused by invisible characters.
 func SanitizePatternValue(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -18,11 +18,11 @@ func SanitizePatternValue(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
-		// C0 控制字符与 DEL
+		// C0 control characters and DEL.
 		if r < 0x20 || r == 0x7f {
 			continue
 		}
-		// 其他控制/格式字符（包含常见零宽字符、BOM 等）
+		// Other control/format characters (including common zero-width chars, BOM, etc).
 		if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
 			continue
 		}
@@ -31,11 +31,11 @@ func SanitizePatternValue(s string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// SanitizeCategory 清理并规范化分类名，确保占位符可被稳定识别与还原。
-// 规则：
-// - 仅保留 [A-Z0-9_]
-// - 将空白与 '-' 归一为 '_'
-// - 自动转大写；空结果返回空字符串（由上层回退默认值）
+// SanitizeCategory sanitizes and normalizes a category name so placeholders can be reliably recognized and restored.
+// Rules:
+// - keep only [A-Z0-9_]
+// - normalize whitespace and '-' into '_'
+// - uppercase; return empty on empty result (caller should apply a default)
 func SanitizeCategory(s string) string {
 	s = SanitizePatternValue(s)
 	if s == "" {
@@ -72,18 +72,44 @@ func SanitizeCategory(s string) string {
 	return out
 }
 
-// SanitizeNLPEngine 清理并规范化 NLP 引擎名称（用于 patterns.nlp.engine）。
-// 允许值：heuristic|onnx。空或非法值返回空字符串（由上层回退默认）。
-func SanitizeNLPEngine(s string) string {
+// SanitizeNERLanguage sanitizes and normalizes the NER language parameter (patterns.ner.language).
+// Allowed values:
+// - auto
+// - other BCP47-like tags (e.g. en / zh / zh-cn / fr ...), normalized to lowercase with illegal chars removed
+func SanitizeNERLanguage(s string) string {
 	s = SanitizePatternValue(s)
 	if s == "" {
 		return ""
 	}
 	s = strings.ToLower(s)
-	switch s {
-	case "heuristic", "onnx":
-		return s
-	default:
+	if s == "auto" {
+		return "auto"
+	}
+
+	// Allow: a-z / 0-9 / '-'; normalize '_' and whitespace into '-'.
+	var b strings.Builder
+	b.Grow(len(s))
+	lastDash := false
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+			lastDash = false
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_' || unicode.IsSpace(r):
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		default:
+			// drop
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
 		return ""
 	}
+	return out
 }

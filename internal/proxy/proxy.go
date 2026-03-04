@@ -28,7 +28,7 @@ import (
 	"github.com/inkdust2021/vibeguard/internal/cert"
 	"github.com/inkdust2021/vibeguard/internal/config"
 	"github.com/inkdust2021/vibeguard/internal/pii_next/keywords"
-	"github.com/inkdust2021/vibeguard/internal/pii_next/nlp"
+	"github.com/inkdust2021/vibeguard/internal/pii_next/ner"
 	"github.com/inkdust2021/vibeguard/internal/pii_next/pipeline"
 	piirec "github.com/inkdust2021/vibeguard/internal/pii_next/recognizer"
 	"github.com/inkdust2021/vibeguard/internal/pii_next/rulelist"
@@ -132,7 +132,7 @@ func NewServer(cfg *config.Manager, ca *cert.CA, certPath, keyPath string) (*Ser
 		keyPath:    keyPath,
 	}
 	server.applyConfig(c)
-	// 启用规则订阅后台更新：远端规则列表会被拉取、校验并缓存到本机目录，然后触发热重载。
+	// Enable background rule subscription updates: remote rule lists are fetched, validated, cached locally, and hot-reloaded.
 	server.subMgr = rulelists.NewSubscriptionManager(cfg, server.ReloadFromConfig)
 	server.subMgr.Start()
 
@@ -147,10 +147,10 @@ func (s *Server) Start() error {
 	// Record start time
 	s.admin.SetStartTime(time.Now().Unix())
 
-	// 不能直接用 http.ServeMux 去处理 CONNECT（authority-form）请求：
-	// CONNECT 的 request-target 形如 "host:port"，URL.Path 可能为空/不以 "/" 开头，
-	// ServeMux 会返回 301 重定向，导致所有 HTTPS 代理流量失败（表现为客户端反复重连/断流）。
-	// 因此这里用自定义路由：仅 /manager/ 走管理端，其余全部交给代理（包括 CONNECT）。
+	// Do not use http.ServeMux for CONNECT (authority-form) requests:
+	// CONNECT request-target is like "host:port", so URL.Path may be empty or not start with "/".
+	// ServeMux may return a 301 redirect, breaking HTTPS proxy traffic (clients keep reconnecting).
+	// Use a custom router here: only /manager/ goes to the admin UI; everything else goes to the proxy (including CONNECT).
 	adminHandler := s.admin.Handler()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r != nil {
@@ -176,6 +176,9 @@ func (s *Server) Stop() {
 		s.subMgr.Stop()
 	}
 	s.session.Close()
+	if s.admin != nil {
+		s.admin.Close()
+	}
 	slog.Info("VibeGuard proxy stopped")
 }
 
@@ -230,7 +233,7 @@ func safeRequestPath(req *http.Request) string {
 	if req == nil || req.URL == nil {
 		return ""
 	}
-	// 只展示 Path，避免把 query 中的敏感信息暴露到管理端。
+	// Only show the Path to avoid exposing sensitive query parameters in the admin UI.
 	return req.URL.Path
 }
 
@@ -312,7 +315,7 @@ func previewValue(s string, head, tail int) string {
 }
 
 func redactJSONBody(redactEng redact.Redactor, body []byte) (out []byte, matches []redact.Match, changed bool, err error) {
-	// 仅在 body 为合法 JSON 时尝试结构化脱敏；否则由上层回退到“整段文本脱敏”逻辑。
+	// Only attempt structured redaction if the body is valid JSON; otherwise fall back to whole-text redaction upstream.
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 
@@ -320,17 +323,17 @@ func redactJSONBody(redactEng redact.Redactor, body []byte) (out []byte, matches
 	if err := dec.Decode(&v); err != nil {
 		return nil, nil, false, err
 	}
-	// 防御：拒绝 “合法 JSON + 额外尾随内容” 的情况，避免重编码后语义变化。
+	// Defensive: reject "valid JSON + trailing extra content" to avoid semantic changes after re-encoding.
 	if err := dec.Decode(&struct{}{}); err != io.EOF {
 		return nil, nil, false, fmt.Errorf("trailing JSON data")
 	}
 
-	// 重要：不要对整个 JSON 的所有字符串字段做“全量脱敏”。
-	// 这会误伤如 model/metadata/schema 等字段（尤其泛化识别会把时间戳/版本号误判为敏感信息），
-	// 造成上游 API 报错或行为异常。这里默认仅对“对话/提示词”相关字段做脱敏：
+	// Important: do not redact all string fields across the whole JSON object.
+	// That can break fields like model/metadata/schema (and generic recognizers may misclassify timestamps/versions),
+	// causing upstream API errors or unexpected behavior. By default, only redact "prompt-like" fields:
 	// - messages[].content / messages[].content[].text
 	// - input / input[].content / input[].content[].text
-	// 注意：为尽量减少对上游协议字段的干扰，默认不处理 system/metadata 等字段。
+	// Note: to minimize interference with upstream protocol fields, do not process system/metadata by default.
 	redacted, matches, changed, err := redactJSONValuePromptOnly(redactEng, v)
 	if err != nil {
 		return nil, nil, false, err
@@ -347,8 +350,8 @@ func redactJSONBody(redactEng redact.Redactor, body []byte) (out []byte, matches
 }
 
 func redactPromptJSONStringValue(redactEng redact.Redactor, s string) (out any, matches []redact.Match, changed bool, err error) {
-	// 对 JSON 字符串字段：在“原始值”上做脱敏，然后再统一 JSON 转义。
-	// 这样可避免把 `\n` 之类的转义序列当作普通文本，影响 NLP/泛化识别效果。
+	// For JSON string fields: redact the raw value first, then apply JSON escaping once.
+	// This avoids treating escape sequences like `\n` as plain text and harming NER/entity recognition.
 	redactedRaw, ms := redactEng.RedactWithMatches([]byte(s))
 	if len(ms) == 0 {
 		return s, nil, false, nil
@@ -359,11 +362,11 @@ func redactPromptJSONStringValue(redactEng redact.Redactor, s string) (out any, 
 		return s, nil, false, err
 	}
 
-	// 用 RawMessage 直接注入已编码的 JSON 字符串（包含外层引号），避免二次转义与结构破坏。
+	// Inject the already-encoded JSON string (including quotes) via RawMessage to avoid double-escaping and structural corruption.
 	raw := json.RawMessage(b)
 	if !json.Valid(raw) {
-		// 极端情况：用户配置的正则/关键词可能命中并破坏转义序列，导致无效 JSON 字符串。
-		// 为避免把无效 JSON 转发到上游，这里回退为“不改写该字段”。
+		// Edge case: user regex/keywords may hit and break escape sequences, producing invalid JSON strings.
+		// To avoid forwarding invalid JSON upstream, fall back to "do not rewrite this field".
 		return s, nil, false, nil
 	}
 
@@ -454,7 +457,7 @@ func redactJSONSystemLike(redactEng redact.Redactor, v any) (out any, matches []
 		}
 		return vv, all, anyChanged, nil
 	case map[string]any:
-		// system 也可能是 {type,text} 或其他结构
+		// system may also be {type,text} or other structures.
 		return redactJSONTextPart(redactEng, vv)
 	default:
 		return v, nil, false, nil
@@ -464,7 +467,7 @@ func redactJSONSystemLike(redactEng redact.Redactor, v any) (out any, matches []
 func redactJSONMessagesLike(redactEng redact.Redactor, v any) (out any, matches []redact.Match, changed bool, err error) {
 	switch vv := v.(type) {
 	case string:
-		// 某些 API 直接用字符串作为 input/prompt
+		// Some APIs use a plain string directly as input/prompt.
 		return redactPromptJSONStringValue(redactEng, vv)
 	case []any:
 		anyChanged := false
@@ -484,7 +487,7 @@ func redactJSONMessagesLike(redactEng redact.Redactor, v any) (out any, matches 
 		}
 		return vv, all, anyChanged, nil
 	case map[string]any:
-		// 极少数实现会把 messages/input 做成对象包装
+		// A few implementations wrap messages/input in an object.
 		return redactJSONValuePromptOnly(redactEng, vv)
 	default:
 		return v, nil, false, nil
@@ -499,7 +502,7 @@ func redactJSONMessageItem(redactEng redact.Redactor, v any) (out any, matches [
 		anyChanged := false
 		var all []redact.Match
 
-		// 常见：role + content
+		// Common shape: role + content.
 		if c, ok := vv["content"]; ok {
 			nc, ms, ch, err := redactJSONMessageContent(redactEng, c)
 			if err != nil {
@@ -529,7 +532,7 @@ func redactJSONMessageItem(redactEng redact.Redactor, v any) (out any, matches [
 			}
 		}
 
-		// OpenAI Responses：有时直接是 {type:"input_text", text:"..."}
+		// OpenAI Responses: sometimes it is directly {type:"input_text", text:"..."}.
 		if t, ok := vv["text"]; ok {
 			nt, ms, ch, err := redactJSONStringLike(redactEng, t)
 			if err != nil {
@@ -557,7 +560,7 @@ func redactJSONMessageContent(redactEng redact.Redactor, v any) (out any, matche
 	case []any:
 		return redactJSONTextParts(redactEng, vv)
 	case map[string]any:
-		// 兼容：content 也可能是 {text:"..."} 结构
+		// Compatibility: content may also be {text:"..."}.
 		return redactJSONTextPart(redactEng, vv)
 	default:
 		return v, nil, false, nil
@@ -593,12 +596,12 @@ func redactJSONTextPart(redactEng redact.Redactor, v any) (out any, matches []re
 	case string:
 		return redactPromptJSONStringValue(redactEng, vv)
 	case map[string]any:
-		// 常见：{type:"text", text:"..."}
+		// Common shape: {type:"text", text:"..."}.
 		if t, ok := vv["text"]; ok {
 			if ts, ok := t.(string); ok && isSystemReminderText(ts) {
-				// Claude Code 这类客户端可能会把 <system-reminder> 注入到 messages[].content[] 里。
-				// 这些内容属于协议/运行时提示，不应被脱敏规则影响（即使命中关键词也不改写），
-				// 否则可能导致上游行为异常或客户端解析失败。
+				// Clients like Claude Code may inject <system-reminder> into messages[].content[].
+				// These are protocol/runtime hints and should not be affected by redaction rules (do not rewrite even if matched),
+				// otherwise upstream behavior or client parsing may break.
 				return vv, nil, false, nil
 			}
 			nt, ms, ch, err := redactJSONStringLike(redactEng, t)
@@ -621,12 +624,12 @@ func isSystemReminderText(s string) bool {
 	if t == "" {
 		return false
 	}
-	// 形如：
+	// Example:
 	// <system-reminder>
 	// ...
 	// </system-reminder>
 	//
-	// 允许 <system-reminder ...> 这种扩展写法。
+	// Also allow extended forms like <system-reminder ...>.
 	if !strings.HasPrefix(t, "<system-reminder") {
 		return false
 	}
@@ -723,7 +726,7 @@ func (s *Server) setupHandlers() {
 			auditEv.Attempted = true
 			contentEncodingHeader := req.Header.Get("Content-Encoding")
 			if !isSupportedContentEncodingHeader(contentEncodingHeader) {
-				// 未知/不支持的压缩：不做脱敏，避免在二进制数据上误命中并破坏请求。
+				// Unknown/unsupported encoding: skip redaction to avoid corrupting binary bodies by false matches.
 				auditEv.Attempted = false
 				auditEv.Note = "encoded"
 				recordAudit()
@@ -742,7 +745,7 @@ func (s *Server) setupHandlers() {
 			limited := io.LimitReader(originalBody, int64(maxTextBodyBytes)+1)
 			rawBody, err := io.ReadAll(limited)
 			if err != nil {
-				// 尽量把已经读取的内容放回去，避免破坏请求转发。
+				// Best-effort: put back already-read bytes to avoid breaking request forwarding.
 				req.Body = &readerWithClose{
 					r: io.MultiReader(bytes.NewReader(rawBody), originalBody),
 					c: originalBody,
@@ -758,7 +761,7 @@ func (s *Server) setupHandlers() {
 			}
 
 			if len(rawBody) > maxTextBodyBytes {
-				// 体积超限：不做脱敏，但需要把已读取的前缀放回去继续转发。
+				// Body too large: skip redaction, but put back the already-read prefix and continue forwarding.
 				req.Body = &readerWithClose{
 					r: io.MultiReader(bytes.NewReader(rawBody), originalBody),
 					c: originalBody,
@@ -775,11 +778,11 @@ func (s *Server) setupHandlers() {
 			_ = originalBody.Close()
 
 			body := rawBody
-			// 若请求体带压缩编码，先解压后再做脱敏，并把请求改为“无压缩”转发（移除 Content-Encoding）。
+			// If the request body is encoded, decode it before redaction and forward it unencoded (remove Content-Encoding).
 			if strings.TrimSpace(contentEncodingHeader) != "" {
 				decoded, derr := decompressBytes(rawBody, contentEncodingHeader, maxTextBodyBytes)
 				if derr != nil {
-					// 解压失败：转发原始压缩体，避免中断业务请求。
+					// Decode failed: forward the original encoded body to avoid breaking the request.
 					req.Body = io.NopCloser(bytes.NewReader(rawBody))
 					req.ContentLength = int64(len(rawBody))
 					req.Header.Set("Content-Length", fmt.Sprintf("%d", len(rawBody)))
@@ -795,7 +798,7 @@ func (s *Server) setupHandlers() {
 				req.Header.Del("Content-Encoding")
 			}
 
-			// 额外防御：非 UTF-8 文本不做脱敏，避免误伤二进制/乱码体。
+			// Extra defense: do not redact non-UTF-8 text to avoid corrupting binary/garbled bodies.
 			if !utf8.Valid(body) {
 				req.Body = io.NopCloser(bytes.NewReader(rawBody))
 				req.ContentLength = int64(len(rawBody))
@@ -838,7 +841,7 @@ func (s *Server) setupHandlers() {
 				outBody = redacted
 				usedRedacted = true
 			}
-			// 兼容兜底：若走了“整段文本脱敏”且把合法 JSON 改坏了，则回退发送原始 body，避免上游解析失败。
+			// Compatibility fallback: if whole-text redaction broke valid JSON, revert to the original body to avoid upstream parse failures.
 			if usedRedacted && strings.Contains(contentType, "application/json") && json.Valid(body) && !json.Valid(outBody) {
 				outBody = body
 				usedRedacted = false
@@ -962,8 +965,8 @@ func (s *Server) setupHandlers() {
 		// Handle SSE streaming
 		isSSE := strings.Contains(contentType, "text/event-stream")
 		if !isSSE && requestRedacted && strings.TrimSpace(contentType) == "" && (contentEncoding == "" || decompressed) && resp.Body != nil {
-			// 有些上游会漏掉 Content-Type，但 body 实际仍是 SSE；这会导致无法跨 delta event 还原占位符。
-			// 这里在不泄露内容的前提下做轻量嗅探：只 peek 少量前缀，且不改变下游读取的数据。
+			// Some upstreams omit Content-Type even when the body is SSE; then placeholders cannot be restored across delta events.
+			// Do a lightweight sniff without leaking content: peek a small prefix and do not change downstream-consumed bytes.
 			origBody := resp.Body
 			br := bufio.NewReaderSize(origBody, 4096)
 			peek, _ := br.Peek(256)
@@ -990,7 +993,7 @@ func (s *Server) setupHandlers() {
 				down := newCaptureBuffer(dbgMaxBody)
 				upstream := &captureReadCloser{rc: resp.Body, w: up}
 				restoring := stream.NewSSERestoringReader(upstream, rt.restoreEng)
-				// 下游 close 时再落库，避免在长 SSE 流中频繁加锁。
+				// Persist on downstream close to avoid frequent locking during long SSE streams.
 				downstream := &captureReadCloser{
 					rc: restoring,
 					w:  down,
@@ -1029,9 +1032,9 @@ func (s *Server) setupHandlers() {
 				return resp
 			}
 
-			// 流式 JSON（常见于某些兼容网关/代理）：Content-Length 可能为 -1。
-			// 若在这里 ReadAll 再还原，会导致下游“长时间无输出”（表现为 CLI 卡住）。
-			// 因此当长度未知时，改为流式还原（跨 chunk 边界支持占位符拼接）。
+			// Streaming JSON (common in some compatible gateways/proxies): Content-Length may be -1.
+			// If we ReadAll here before restoring, downstream sees no output for a long time (CLI appears "stuck").
+			// When length is unknown, restore in a streaming way (supports placeholders across chunk boundaries).
 			if resp.ContentLength < 0 {
 				if auditID > 0 {
 					s.admin.UpdateAudit(auditID, func(ev *admin.AuditEvent) { ev.RestoreApplied = true })
@@ -1077,7 +1080,7 @@ func (s *Server) setupHandlers() {
 			limited := io.LimitReader(originalBody, int64(maxTextBodyBytes)+1)
 			body, err := io.ReadAll(limited)
 			if err != nil {
-				// 尽量把已经读取的内容放回去，避免破坏响应转发。
+				// Best-effort: put back already-read bytes to avoid breaking response forwarding.
 				resp.Body = &readerWithClose{
 					r: io.MultiReader(bytes.NewReader(body), originalBody),
 					c: originalBody,
@@ -1224,8 +1227,8 @@ func (s *Server) setupHandlers() {
 	})
 
 	// HTTPS CONNECT:
-	// - intercept_mode=global：对所有域名启用 MITM
-	// - intercept_mode=targets：仅对 targets 中启用的域名启用 MITM
+	// - intercept_mode=global: enable MITM for all hosts
+	// - intercept_mode=targets: enable MITM only for hosts in targets
 	s.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
 		if !s.shouldIntercept(host) {
 			slog.Debug("HTTPS tunnel pass-through", "host", host)
@@ -1310,8 +1313,8 @@ func normalizeInterceptMode(mode string) string {
 }
 
 func looksLikeSSEPrefix(prefix []byte) bool {
-	// SSE（Server-Sent Events）通常以 "data:" / "event:" 等字段开头。
-	// 一些上游/网关可能遗漏 Content-Type，此时可通过 body 前缀进行轻量嗅探。
+	// SSE (Server-Sent Events) usually starts with fields like "data:" / "event:".
+	// Some upstreams/gateways may omit Content-Type, so we do a lightweight sniff via body prefix.
 	b := bytes.TrimLeft(prefix, "\r\n\t ")
 	if len(b) == 0 {
 		return false
@@ -1324,9 +1327,9 @@ func looksLikeSSEPrefix(prefix []byte) bool {
 }
 
 func (s *Server) applyConfig(c config.Config) {
-	// 会话占位符生成模式：
-	// - 默认：进程内随机 key（仅进程内稳定）
-	// - 开启 deterministic_placeholders：使用 CA 派生 key（跨进程稳定）
+	// Session placeholder key mode:
+	// - default: process-random key (stable only within the process)
+	// - deterministic_placeholders: derive key from CA (stable across processes)
 	if c.Session.DeterministicPlaceholders {
 		if key, err := s.ca.DerivePlaceholderKey(); err != nil {
 			slog.Warn("Failed to derive deterministic placeholder key; falling back to random placeholders", "error", err)
@@ -1367,9 +1370,9 @@ func (s *Server) applyConfig(c config.Config) {
 		exclude = append(exclude, ex)
 	}
 
-	// 管理页不直接编辑 regex/builtin：推荐使用“规则列表（.vgrules）”来承载可复用的通用正则/关键词规则。
-	// 若用户仍在配置文件中填写了 regex/builtin，这里会提示但不启用，
-	// 避免“过宽正则误伤整段文本”的情况。
+	// The admin UI does not edit regex/builtin directly: use rule lists (.vgrules) for reusable regex/keyword rules.
+	// If the user still configured regex/builtin in config, warn and ignore them here
+	// to avoid "over-broad regexes corrupting the whole text".
 	if len(c.Patterns.Regex) > 0 || len(c.Patterns.Builtin) > 0 {
 		slog.Warn("Ignoring regex/builtin patterns; use rule lists for reusable regex/keywords",
 			"regex", len(c.Patterns.Regex),
@@ -1424,28 +1427,24 @@ func (s *Server) applyConfig(c config.Config) {
 	}
 
 	var redactor redact.Redactor
-	if len(ruleRecs) > 0 || c.Patterns.NLP.Enabled {
+	if len(ruleRecs) > 0 || c.Patterns.NER.Enabled {
 		var merged []piirec.Recognizer
-		// 关键词：合并为一个 recognizer，避免重复扫描。
+		// Keywords: merge into one recognizer to avoid duplicate scans.
 		if len(kws) > 0 {
 			merged = append(merged, keywords.New(kws))
 		}
 
 		merged = append(merged, ruleRecs...)
 
-		if c.Patterns.NLP.Enabled {
-			rec, err := nlp.New(nlp.Options{
-				Engine:          c.Patterns.NLP.Engine,
-				ModelPath:       c.Patterns.NLP.ModelPath,
-				RouteByLang:     c.Patterns.NLP.RouteByLang,
-				ModelPathEN:     c.Patterns.NLP.ModelPathEN,
-				ModelPathZH:     c.Patterns.NLP.ModelPathZH,
-				MaxLoadedModels: c.Patterns.NLP.MaxLoadedModels,
-				Entities:        c.Patterns.NLP.Entities,
-				MinScore:        c.Patterns.NLP.MinScore,
+		if c.Patterns.NER.Enabled {
+			rec, err := ner.New(ner.Options{
+				PresidioURL: c.Patterns.NER.PresidioURL,
+				Language:    c.Patterns.NER.Language,
+				Entities:    c.Patterns.NER.Entities,
+				MinScore:    c.Patterns.NER.MinScore,
 			})
 			if err != nil {
-				slog.Warn("Failed to init NLP recognizer; continuing without NLP", "error", err)
+				slog.Warn("Failed to init NER recognizer; continuing without NER", "error", err)
 			} else if rec != nil {
 				merged = append(merged, rec)
 			}
@@ -1486,8 +1485,8 @@ func (s *Server) applyConfig(c config.Config) {
 	})
 }
 
-// ReloadFromConfig 在不重启代理的情况下重载配置（主要用于匹配规则/目标域名变更）。
-// 注意：不会热更新 listen 地址、Session TTL 等需要重建组件的参数。
+// ReloadFromConfig reloads configuration without restarting the proxy (mainly for rules/targets changes).
+// Note: it does not hot-update listen address, session TTL, or other parameters that require rebuilding components.
 func (s *Server) ReloadFromConfig() {
 	c := s.config.Get()
 	if strings.TrimSpace(c.Proxy.Listen) != "" && strings.TrimSpace(c.Proxy.Listen) != strings.TrimSpace(s.listenAddr) {
@@ -1503,7 +1502,7 @@ func (s *Server) ReloadFromConfig() {
 		"deterministic_placeholders", c.Session.DeterministicPlaceholders,
 		"keywords", len(c.Patterns.Keywords),
 		"rule_lists", len(c.Patterns.RuleLists),
-		"nlp_enabled", c.Patterns.NLP.Enabled,
+		"ner_enabled", c.Patterns.NER.Enabled,
 		"exclude", len(c.Patterns.Exclude),
 	)
 }

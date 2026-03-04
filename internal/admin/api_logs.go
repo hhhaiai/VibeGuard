@@ -39,7 +39,7 @@ func (a *Admin) handleLogs(w http.ResponseWriter, r *http.Request) {
 
 	lines, err := tailFileLines(effective, tail)
 	if err != nil {
-		// 文件不存在/不可读：返回空列表，并把错误放到 warning 里，便于前端提示。
+		// File missing/unreadable: return an empty list and put the error into warning for UI display.
 		slog.Debug("Read logs failed", "path", effective, "error", err)
 		warning = strings.TrimSpace(strings.Join([]string{warning, err.Error()}, " "))
 	}
@@ -92,7 +92,7 @@ func (a *Admin) handleLogsStream(w http.ResponseWriter, r *http.Request) {
 		return true
 	}
 
-	// 初始 tail
+	// Initial tail.
 	lines, err := tailFileLines(effective, tail)
 	if err != nil {
 		warning = strings.TrimSpace(strings.Join([]string{warning, err.Error()}, " "))
@@ -106,7 +106,7 @@ func (a *Admin) handleLogsStream(w http.ResponseWriter, r *http.Request) {
 		Warning:        warning,
 	})
 
-	// 进入 follow：从文件末尾开始读取新增内容
+	// Follow mode: read newly appended content from the end of the file.
 	var pos int64 = 0
 	if st, err := os.Stat(effective); err == nil {
 		pos = st.Size()
@@ -128,7 +128,7 @@ func (a *Admin) handleLogsStream(w http.ResponseWriter, r *http.Request) {
 
 			size := st.Size()
 			if size < pos {
-				// 文件被截断/轮转：从头开始
+				// File truncated/rotated: restart from the beginning.
 				pos = 0
 				carry = carry[:0]
 			}
@@ -139,7 +139,7 @@ func (a *Admin) handleLogsStream(w http.ResponseWriter, r *http.Request) {
 			const maxReadBytes int64 = 256 * 1024
 			start := pos
 			if size-start > maxReadBytes {
-				// 变更过大：只取最后一段，避免把管理页卡死
+				// Too much change: only read the last chunk to avoid freezing the admin UI.
 				start = size - maxReadBytes
 			}
 
@@ -177,7 +177,7 @@ func (a *Admin) handleLogsStream(w http.ResponseWriter, r *http.Request) {
 
 func resolveLogPath(configured string) (effective string, warning string) {
 	if strings.TrimSpace(configured) == "" {
-		// 默认值（和 config 默认一致），避免出现空路径导致前端不知所措
+		// Default value (same as config default) to avoid confusing the UI with an empty path.
 		configured = "~/.vibeguard/vibeguard.log"
 	}
 
@@ -234,7 +234,7 @@ func tailFileLines(path string, tail int) ([]string, error) {
 		return nil, nil
 	}
 
-	// 从文件末尾开始逐步扩大读取窗口，直到捕获到足够的换行符或到达文件开头。
+	// Grow a window from the file end until we capture enough newlines or reach the beginning.
 	var window int64 = 64 * 1024
 	if window > size {
 		window = size
@@ -261,17 +261,17 @@ func tailFileLines(path string, tail int) ([]string, error) {
 		}
 	}
 
-	// 用 Scanner 按行切分，避免一次性 split 造成大量临时对象
+	// Split by line via Scanner to avoid large temporary allocations from a full split.
 	var lines []string
 	sc := bufio.NewScanner(bytes.NewReader(buf))
-	// 适配较长日志行
+	// Support long log lines.
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		line := strings.TrimRight(sc.Text(), "\r")
 		lines = append(lines, line)
 	}
 	if err := sc.Err(); err != nil {
-		// Scanner 失败时退化为简单 split
+		// Fallback to a simple split when Scanner fails.
 		parts := bytes.Split(buf, []byte("\n"))
 		lines = lines[:0]
 		for _, p := range parts {
@@ -298,7 +298,7 @@ func splitCompleteLines(data []byte) (lines [][]byte, carry []byte) {
 	if len(parts) == 0 {
 		return nil, data
 	}
-	// 如果最后一段不是以 \n 结尾，则作为 carry 保留
+	// If the last segment does not end with \n, keep it as carry.
 	if len(data) > 0 && data[len(data)-1] != '\n' {
 		carry = append([]byte(nil), parts[len(parts)-1]...)
 		parts = parts[:len(parts)-1]

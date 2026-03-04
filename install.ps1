@@ -1,15 +1,20 @@
-# VibeGuard 安装脚本（中英双语） / VibeGuard installer (ZH/EN)
+# VibeGuard installer script (bilingual strings; comments in English)
 #
-# 功能 / Features:
-# - 安装 vibeguard.exe（二选一：从源码构建 / go install） / Install vibeguard.exe (build from source or go install)
-# - 导出（“下载”）CA 证书到文件 / Export ("download") the CA certificate to a file
-# - 可选：安装 CA 到系统/用户信任库（system/user/auto/skip） / Optional: install CA into trust store
+# Features:
+# - Install vibeguard.exe (prefer GitHub Release; fallback to build from source or go install)
+# - Choose variant (lite/full): full includes SQLite audit persistence (larger)
+# - Export ("download") the CA certificate to a file
+# - Optional: install CA into trust store (system/user/auto/skip)
 #
-# 用法 / Usage:
+# Usage:
 #   powershell -ExecutionPolicy Bypass -File .\\install.ps1
 
 param(
   [string]$InstallDir = (Join-Path $HOME ".local\\bin"),
+  [ValidateSet("auto", "lite", "full")]
+  [string]$Variant = "auto",
+  # Release tag to install, e.g. v0.2.0; default latest
+  [string]$Version = "latest",
   [ValidateSet("system", "user", "auto", "skip")]
   [string]$Trust = "system",
   [ValidateSet("auto", "user", "skip")]
@@ -25,7 +30,17 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Common issue in Windows PowerShell: default TLS may be too old for GitHub
+try {
+  if ($PSVersionTable.PSVersion.Major -lt 6) {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  }
+} catch {
+  # ignore
+}
+
 $ScriptLang = $null
+$ScriptVariant = $null
 
 function NormalizeLang([string]$Value) {
   if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
@@ -59,18 +74,25 @@ function DetectDefaultLang() {
   return "en"
 }
 
-if ($Language -ne "auto") {
-  $ScriptLang = NormalizeLang $Language
-}
-if (-not $ScriptLang) {
-  $ScriptLang = NormalizeLang $env:VIBEGUARD_LANG
-}
-if (-not $ScriptLang) {
-  $ScriptLang = DetectDefaultLang
+function NormalizeVariant([string]$Value) {
+  if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+  $v = $Value.Trim().ToLowerInvariant()
+  switch ($v) {
+    "lite" { return "lite" }
+    "full" { return "full" }
+    default { return $null }
+  }
 }
 
-$canPrompt = (-not $NonInteractive) -and ($Language -eq "auto") -and (-not [Console]::IsInputRedirected) -and (-not [Console]::IsOutputRedirected)
-if ($canPrompt) {
+if ($Language -ne "auto") { $ScriptLang = NormalizeLang $Language }
+if (-not $ScriptLang) { $ScriptLang = NormalizeLang $env:VIBEGUARD_LANG }
+if (-not $ScriptLang) { $ScriptLang = DetectDefaultLang }
+
+if ($Variant -ne "auto") { $ScriptVariant = NormalizeVariant $Variant }
+if (-not $ScriptVariant) { $ScriptVariant = NormalizeVariant $env:VIBEGUARD_VARIANT }
+
+$canPromptAny = (-not $NonInteractive) -and (-not [Console]::IsInputRedirected) -and (-not [Console]::IsOutputRedirected)
+if ($canPromptAny -and ($Language -eq "auto")) {
   Write-Host ""
   Write-Host "请选择语言 / Choose language:"
   Write-Host "  1) 中文"
@@ -91,10 +113,26 @@ function T([string]$Zh, [string]$En) {
   return $En
 }
 
-# 传递给 vibeguard 子进程（如未来 init/trust 支持多语言提示）
-$env:VIBEGUARD_LANG = $ScriptLang
+# Variant hint: default is lite (smaller); full includes SQLite audit persistence.
+if (-not $ScriptVariant) {
+  if ($canPromptAny -and ($Variant -eq "auto")) {
+    Write-Host ""
+    Write-Host (T "请选择安装变体（默认 lite，更轻量）：" "Choose install variant (default lite, smaller):")
+    Write-Host (T "  1) lite  - 不含 SQLite 审计落盘（推荐）" "  1) lite  - No SQLite audit persistence (recommended)")
+    Write-Host (T "  2) full  - 含 SQLite 审计落盘（体积更大）" "  2) full  - With SQLite audit persistence (larger)")
+    $choice = Read-Host (T "选择 [1]" "Choose [1]")
+    if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "1" }
+    if ($choice -eq "2") { $ScriptVariant = "full" } else { $ScriptVariant = "lite" }
+  } else {
+    $ScriptVariant = "lite"
+  }
+}
 
-# 记住所选语言（供管理页/卸载脚本默认使用）
+# Pass to vibeguard child processes (e.g. future multilingual init/trust prompts).
+$env:VIBEGUARD_LANG = $ScriptLang
+$env:VIBEGUARD_VARIANT = $ScriptVariant
+
+# Persist selected language (used as default by admin UI and uninstall script).
 try {
   $cfgDir0 = Join-Path $HOME ".vibeguard"
   New-Item -ItemType Directory -Force -Path "$cfgDir0" | Out-Null
@@ -133,6 +171,99 @@ function Run([string]$File, [string[]]$Args) {
   & $File @Args
   if ($LASTEXITCODE -ne 0) {
     Die "命令执行失败：$File $($Args -join ' ')" "Command failed: $File $($Args -join ' ')"
+  }
+}
+
+function DetectGoArch() {
+  $a = $env:PROCESSOR_ARCHITEW6432
+  if ([string]::IsNullOrWhiteSpace($a)) { $a = $env:PROCESSOR_ARCHITECTURE }
+  if ([string]::IsNullOrWhiteSpace($a)) { return $null }
+  $a = $a.Trim().ToUpperInvariant()
+  switch ($a) {
+    "AMD64" { return "amd64" }
+    "ARM64" { return "arm64" }
+    default { return $null }
+  }
+}
+
+function DownloadFile([string]$Url, [string]$OutFile) {
+  $headers = @{
+    "User-Agent" = "VibeGuard-Installer"
+  }
+  if ($PSVersionTable.PSVersion.Major -lt 6) {
+    Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri "$Url" -OutFile "$OutFile"
+  } else {
+    Invoke-WebRequest -Headers $headers -Uri "$Url" -OutFile "$OutFile"
+  }
+}
+
+function GetExpectedSha256([string]$ChecksumsFile, [string]$AssetName) {
+  if (-not (Test-Path -LiteralPath "$ChecksumsFile")) { return $null }
+  $lines = Get-Content -LiteralPath "$ChecksumsFile" -ErrorAction Stop
+  foreach ($line in $lines) {
+    if ($line -match '^(?<hash>[a-fA-F0-9]{64})\s+\*?(?<file>.+)$') {
+      $h = $Matches["hash"].ToLowerInvariant()
+      $f = $Matches["file"].Trim()
+      if ($f -eq "$AssetName") { return $h }
+    }
+  }
+  return $null
+}
+
+function InstallFromRelease([string]$InstallDir0, [string]$Variant0, [string]$Version0) {
+  $repo = $env:VG_INSTALL_REPO
+  if ([string]::IsNullOrWhiteSpace($repo)) { $repo = "inkdust2021/VibeGuard" }
+
+  $goarch = DetectGoArch
+  if (-not $goarch) {
+    throw (T ("不支持的 Windows 架构：$($env:PROCESSOR_ARCHITECTURE)") ("Unsupported Windows architecture: $($env:PROCESSOR_ARCHITECTURE)"))
+  }
+
+  $suffix = ""
+  if ($Variant0 -eq "full") { $suffix = "_full" }
+  $asset = "vibeguard_windows_${goarch}${suffix}.zip"
+
+  $base = $null
+  if ([string]::IsNullOrWhiteSpace($Version0) -or $Version0 -eq "latest") {
+    $base = "https://github.com/$repo/releases/latest/download"
+  } else {
+    $base = "https://github.com/$repo/releases/download/$Version0"
+  }
+
+  $tmpZip = Join-Path $env:TEMP ("vibeguard-" + [Guid]::NewGuid().ToString("N") + ".zip")
+  $tmpSum = Join-Path $env:TEMP ("vibeguard-" + [Guid]::NewGuid().ToString("N") + ".checksums.txt")
+  $tmpDir = Join-Path $env:TEMP ("vibeguard-" + [Guid]::NewGuid().ToString("N"))
+
+  New-Item -ItemType Directory -Force -Path "$tmpDir" | Out-Null
+  try {
+    Say "从 Release 下载：$asset" "Downloading from Release: $asset"
+    DownloadFile "$base/$asset" "$tmpZip"
+    try {
+      DownloadFile "$base/checksums.txt" "$tmpSum"
+      $expected = GetExpectedSha256 "$tmpSum" "$asset"
+      if ($expected) {
+        $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath "$tmpZip").Hash.ToLowerInvariant()
+        if ($actual -ne $expected) {
+          Die "校验失败：$asset SHA256 不匹配" "Checksum mismatch: $asset SHA256 does not match"
+        }
+      } else {
+        Write-Warning (T "未在 checksums.txt 中找到对应条目：跳过校验" "Entry not found in checksums.txt: skipping verification")
+      }
+    } catch {
+      Write-Warning (T ("下载/解析 checksums.txt 失败：跳过校验（" + $_.Exception.Message + "）") ("Failed to fetch/parse checksums.txt: skipping verification (" + $_.Exception.Message + ")"))
+    }
+
+    Expand-Archive -LiteralPath "$tmpZip" -DestinationPath "$tmpDir" -Force
+    $exe = Join-Path "$tmpDir" "vibeguard.exe"
+    if (-not (Test-Path -LiteralPath "$exe")) {
+      throw (T "Release 包不包含 vibeguard.exe" "Release archive does not contain vibeguard.exe")
+    }
+    Copy-Item -Force -LiteralPath "$exe" -Destination (Join-Path "$InstallDir0" "vibeguard.exe")
+    try { Unblock-File -LiteralPath (Join-Path "$InstallDir0" "vibeguard.exe") -ErrorAction SilentlyContinue | Out-Null } catch { }
+  } finally {
+    Remove-Item -Force -LiteralPath "$tmpZip" -ErrorAction SilentlyContinue | Out-Null
+    Remove-Item -Force -LiteralPath "$tmpSum" -ErrorAction SilentlyContinue | Out-Null
+    Remove-Item -Recurse -Force -LiteralPath "$tmpDir" -ErrorAction SilentlyContinue | Out-Null
   }
 }
 
@@ -241,25 +372,43 @@ function EnableAutostartRunKey([string]$VgPath, [string]$ConfigFile) {
 }
 
 New-Item -ItemType Directory -Force -Path "$InstallDir" | Out-Null
-Need "go"
 
 Say "安装目录：$InstallDir" "Install dir: $InstallDir"
+Say ("安装变体：$ScriptVariant") ("Variant: $ScriptVariant")
 
 if (InRepo) {
+  Need "go"
   Say "检测到仓库源码：从源码构建并安装" "Repo detected: build from source"
   $tmp = Join-Path $env:TEMP ("vibeguard-" + [Guid]::NewGuid().ToString("N"))
   New-Item -ItemType Directory -Force -Path "$tmp" | Out-Null
   try {
     $outExe = Join-Path "$tmp" "vibeguard.exe"
-    Run "go" @("build", "-o", "$outExe", "./cmd/vibeguard")
+    $args = @("build", "-o", "$outExe")
+    if ($ScriptVariant -eq "full") { $args += @("-tags", "vibeguard_full") }
+    $args += @("./cmd/vibeguard")
+    Run "go" $args
     Copy-Item -Force -LiteralPath "$outExe" -Destination (Join-Path "$InstallDir" "vibeguard.exe")
   } finally {
     Remove-Item -Recurse -Force -LiteralPath "$tmp" -ErrorAction SilentlyContinue | Out-Null
   }
 } else {
-  Say "未检测到源码：通过 go install 安装" "Repo not found: installing via go install"
-  $env:GOBIN = "$InstallDir"
-  Run "go" @("install", "github.com/inkdust2021/vibeguard/cmd/vibeguard@latest")
+  $installed = $false
+  try {
+    InstallFromRelease "$InstallDir" "$ScriptVariant" "$Version"
+    $installed = $true
+  } catch {
+    Write-Warning (T ("Release 安装失败，将尝试 go install（" + $_.Exception.Message + "）") ("Release install failed; falling back to go install (" + $_.Exception.Message + ")"))
+  }
+
+  if (-not $installed) {
+    Need "go"
+    Say "未检测到源码：通过 go install 安装" "Repo not found: installing via go install"
+    $env:GOBIN = "$InstallDir"
+    $args = @("install")
+    if ($ScriptVariant -eq "full") { $args += @("-tags", "vibeguard_full") }
+    $args += @("github.com/inkdust2021/vibeguard/cmd/vibeguard@latest")
+    Run "go" $args
+  }
 }
 
 $vg = Join-Path "$InstallDir" "vibeguard.exe"
@@ -279,7 +428,7 @@ $configDir = Join-Path $HOME ".vibeguard"
 $caCert = Join-Path "$configDir" "ca.crt"
 $configFile = Join-Path "$configDir" "config.yaml"
 
-# 可选：让 vibeguard 在全局可调用（写入用户 PATH）
+# Optional: make vibeguard globally callable (write to user PATH).
 if ($PathMode -ne "skip") {
   $cmd = Get-Command "vibeguard" -ErrorAction SilentlyContinue
   $resolved = if ($null -ne $cmd) { $cmd.Path } else { $null }
@@ -405,7 +554,7 @@ $proxyHostPort = ProxyHostPortFromListen "$listen"
 $proxyUrl = "http://$proxyHostPort"
 $adminUrl = "http://$proxyHostPort/manager/"
 
-# 可选：开机自启（Windows 计划任务；若不可用则退化为 HKCU Run）
+# Optional: autostart (Windows Scheduled Task; fallback to HKCU Run).
 $autostartEnabled = $false
 $autostartHint = $null
 if ($AutostartMode -ne "skip") {

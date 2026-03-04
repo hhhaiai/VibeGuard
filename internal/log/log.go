@@ -79,7 +79,7 @@ func SetFileOnly(logPath string, level string) error {
 	return nil
 }
 
-// ExpandPath 展开路径中的 "~/"（仅支持当前用户），避免把日志写到相对目录下的 "~" 文件夹。
+// ExpandPath expands "~/" in paths (current user only), avoiding writing logs into a literal "~" directory under a relative path.
 func ExpandPath(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {

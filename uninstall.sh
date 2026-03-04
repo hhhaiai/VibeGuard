@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# VibeGuard 卸载脚本（中英双语） / VibeGuard uninstaller (ZH/EN)
+# VibeGuard uninstaller script (bilingual strings; comments in English)
 #
-# 默认会做什么 / What it removes by default:
-# - 尝试停止后台代理 / Try to stop background proxy
-# - 移除开机自启（macOS LaunchAgent / Linux systemd --user） / Remove autostart
-# - 删除安装目录中的 vibeguard 二进制 / Remove vibeguard binary in install dir
-# - 清理 shell rc 中由 install.sh 写入的区块（PATH/PROXY/SHELL） / Remove rc blocks inserted by install.sh
+# What it removes by default:
+# - Try to stop background proxy
+# - Remove autostart (macOS LaunchAgent / Linux systemd --user)
+# - Remove vibeguard binary in install dir
+# - Remove blocks injected into shell rc by install.sh (PATH/PROXY/SHELL)
 #
-# 可选 / Optional:
-# - --purge 删除 ~/.vibeguard（配置/证书/日志/WAL） / Remove ~/.vibeguard (config/certs/logs/WAL)
+# Optional:
+# - --purge: remove ~/.vibeguard (config/certs/logs/WAL)
 
 SCRIPT_LANG=""     # zh|en
 SCRIPT_LANG_SET="0"
@@ -37,7 +37,7 @@ normalize_lang() {
 }
 
 t() {
-  # 用法：t "中文" "English"
+  # Usage: t "Chinese" "English"
   if [[ "${SCRIPT_LANG}" == "zh" ]]; then
     printf "%s" "$1"
   else
@@ -91,12 +91,12 @@ proxy_hostport_from_listen() {
     return 0
   fi
 
-  # 常见：0.0.0.0:28657 -> 127.0.0.1:28657（给客户端用更合理）
+  # Common: 0.0.0.0:28657 -> 127.0.0.1:28657 (more reasonable for clients)
   if [[ "${listen}" == 0.0.0.0:* ]]; then
     echo "127.0.0.1:${listen#0.0.0.0:}"
     return 0
   fi
-  # 仅端口：:28657
+  # Port-only form: :28657
   if [[ "${listen}" == :* ]]; then
     echo "127.0.0.1${listen}"
     return 0
@@ -158,7 +158,7 @@ untrust_darwin() {
     return 0
   fi
 
-  # 用户钥匙串（Login Keychain）
+  # User keychain (Login Keychain)
   if [[ "${has_user}" == "1" ]]; then
     if [[ -n "${login_kc}" ]]; then
       security delete-certificate -Z "${sha256}" -t "${login_kc}" >/dev/null 2>&1 || true
@@ -167,10 +167,10 @@ untrust_darwin() {
     fi
   fi
 
-  # 系统钥匙串（System.keychain / admin trust store）
+  # System keychain (System.keychain / admin trust store)
   if [[ "${has_system}" == "1" ]]; then
     if [[ "${NON_INTERACTIVE}" == "1" ]] || ! is_tty; then
-      # 无法交互输入 sudo 密码：留给用户手动处理
+      # Cannot prompt for sudo password interactively; leave it to the user.
       :
     else
       sudo security remove-trusted-cert -d "${ca_cert}" >/dev/null 2>&1 || true
@@ -178,7 +178,7 @@ untrust_darwin() {
     fi
   fi
 
-  # 再次检查：仍存在则认为自动移除失败
+  # Re-check: if it still exists, consider auto removal failed.
   local still="0"
   if [[ -n "${login_kc}" ]]; then
     if security find-certificate -a -Z "${login_kc}" 2>/dev/null | grep -Fq "SHA-256 hash: ${sha256}"; then
@@ -197,7 +197,7 @@ untrust_darwin() {
 }
 
 untrust_linux() {
-  # Linux 信任库位置不统一：按 vibeguard trust 的常见写入位置做 best-effort 清理。
+  # Linux trust store locations vary; best-effort cleanup based on common vibeguard trust paths.
   local found="0"
   local paths=(
     "/usr/local/share/ca-certificates/vibeguard-ca.crt"
@@ -272,7 +272,7 @@ remove_vibeguard_blocks_in_rc() {
   local f="${1:-}"
   [[ -f "${f}" ]] || return 0
 
-  # 仅在存在 marker 时才改动文件
+  # Only modify the file if markers exist.
   if ! grep -Fqs "# VibeGuard " "${f}"; then
     return 0
   fi
@@ -287,7 +287,7 @@ remove_vibeguard_blocks_in_rc() {
     $0=="# VibeGuard PROXY" { skip=1; mode="proxy"; next }
     $0=="# VibeGuard SHELL" { skip=1; mode="shell"; next }
 
-    skip==1 && mode=="path" { skip=0; mode=""; next } # PATH 区块固定只有 1 行 export
+    skip==1 && mode=="path" { skip=0; mode=""; next } # PATH block always has exactly one export line
 
     skip==1 && mode=="proxy" {
       if ($0 ~ /^#/ ) { next }
@@ -320,7 +320,7 @@ find_vg_bin() {
     return 0
   fi
 
-  # type -P 会忽略 shell function，优先返回可执行文件路径
+  # type -P ignores shell functions and prefers executable paths.
   p="$(type -P vibeguard 2>/dev/null || true)"
   if [[ -n "${p}" && -x "${p}" ]]; then
     echo "${p}"
@@ -346,11 +346,11 @@ kill_vibeguard_listeners_on_port() {
     return 0
   fi
 
-  # 只提取 COMMAND 为 vibeguard 的 PID，避免误杀其他进程。
+  # Only take PIDs whose COMMAND is vibeguard to avoid killing other processes by mistake.
   local pids
   pids="$(lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 && $1=="vibeguard" {print $2}' | sort -u || true)"
   if [[ -z "${pids}" ]]; then
-    # 端口仍被占用但不是 vibeguard：提示即可，不自动结束。
+    # Port is still in use but not by vibeguard: warn only, do not kill automatically.
     local other
     other="$(lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null | awk 'NR==1{next} {print $1" "$2; exit}' || true)"
     if [[ -n "${other}" ]]; then
@@ -378,7 +378,7 @@ stop_proxy_best_effort() {
     "${vg}" stop >/dev/null 2>&1 || true
   fi
 
-  # 退化：按 PID 文件杀进程（仅限未安装系统服务、但 detached 后台运行的场景）
+  # Fallback: kill via PID file (only for detached background runs without a service).
   local pid_file="${HOME}/.vibeguard/vibeguard.pid"
   if [[ -f "${pid_file}" ]]; then
     local pid
@@ -391,7 +391,7 @@ stop_proxy_best_effort() {
     rm -f "${pid_file}" >/dev/null 2>&1 || true
   fi
 
-  # 最后兜底：按端口找到实际监听进程并结束（只杀 vibeguard）。
+  # Last resort: resolve the actual listener by port and kill it (vibeguard only).
   kill_vibeguard_listeners_on_port "$(proxy_hostport_for_client)"
 }
 

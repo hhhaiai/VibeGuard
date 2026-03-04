@@ -89,7 +89,7 @@ func (a *Admin) handleDebugEventsItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing id", http.StatusBadRequest)
 		return
 	}
-	// 允许尾部带斜杠
+	// Allow a trailing slash.
 	idStr = strings.TrimSuffix(idStr, "/")
 
 	id, err := strconv.ParseInt(idStr, 10, 64)

@@ -26,8 +26,8 @@ const (
 
 // IsCATrusted checks if the CA certificate is trusted by the system
 func IsCATrusted(certPath string) bool {
-	// 优先使用系统证书池做验证：更准确且不依赖外部命令输出格式。
-	// 这也能覆盖证书名称变更等情况。
+	// Prefer verifying via the system cert pool: more accurate and does not depend on external command output formatting.
+	// This also covers cases like certificate name changes.
 	if isTrustedBySystemCertPool(certPath) {
 		return true
 	}
@@ -64,10 +64,10 @@ func isTrustedDarwin(certPath string) bool {
 			}
 		}
 	}
-	// 系统级安装通常会落在 System.keychain
+	// System-level installs typically land in System.keychain.
 	keychains = append(keychains, "/Library/Keychains/System.keychain")
 
-	// 先按当前证书 CN 搜索，找不到再降级用更宽泛名称。
+	// Search by the current certificate CN first; if not found, fall back to a broader name.
 	names := []string{}
 	if caCert.Subject.CommonName != "" {
 		names = append(names, caCert.Subject.CommonName)
@@ -134,7 +134,7 @@ func loadPEMCertificateFromFile(certPath string) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-// FingerprintSHA256FromCertificate 返回证书原始 DER 的 SHA-256 指纹（大写十六进制，无分隔符）。
+// FingerprintSHA256FromCertificate returns the SHA-256 fingerprint of the certificate's raw DER (uppercase hex, no separators).
 func FingerprintSHA256FromCertificate(cert *x509.Certificate) string {
 	if cert == nil {
 		return ""
@@ -154,8 +154,8 @@ func isTrustedBySystemCertPool(certPath string) bool {
 		return false
 	}
 
-	// 直接验证 CA 证书本身是否能在系统根证书池中建立可信链。
-	// 使用 ExtKeyUsageAny 避免因 EKU/用途差异导致的误判。
+	// Verify whether the CA certificate itself can build a trusted chain from the system root pool.
+	// Use ExtKeyUsageAny to avoid false negatives caused by EKU/usage differences.
 	opts := x509.VerifyOptions{
 		Roots:       roots,
 		CurrentTime: time.Now(),
@@ -193,9 +193,9 @@ func InstallCAToSystemTrustStore(certPath string) error {
 
 // InstallCAToTrustStore installs the CA certificate into user/system trust store based on mode.
 // mode:
-// - auto: macOS 优先用户信任库，失败后再尝试系统信任库；Windows 先 user 再 system；Linux 等同 system
-// - user: 仅安装到当前用户信任库（macOS/Windows）
-// - system: 仅安装到系统信任库（macOS/Linux/Windows，通常需要管理员权限）
+// - auto: macOS prefers user trust store then system; Windows tries user then system; Linux is equivalent to system
+// - user: install only to the current user's trust store (macOS/Windows)
+// - system: install only to the system trust store (macOS/Linux/Windows; typically requires admin privileges)
 func InstallCAToTrustStore(certPath string, mode TrustInstallMode) error {
 	if mode == "" {
 		mode = TrustInstallModeAuto

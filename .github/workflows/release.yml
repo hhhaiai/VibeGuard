@@ -23,6 +23,7 @@ jobs:
       matrix:
         goos: [linux, darwin, windows]
         goarch: [amd64, arm64]
+        variant: [lite, full]
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -40,6 +41,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
+          VG_VARIANT: ${{ matrix.variant }}
           VG_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
@@ -58,18 +60,25 @@ jobs:
             bin="vibeguard.exe"
           fi
 
-          go build -trimpath -buildvcs=false -ldflags "${ldflags}" -o "${bin}" ./cmd/vibeguard
+          suffix=""
+          build_tags=()
+          if [[ "${VG_VARIANT}" == "full" ]]; then
+            suffix="_full"
+            build_tags=(-tags vibeguard_full)
+          fi
+
+          go build -trimpath -buildvcs=false "${build_tags[@]}" -ldflags "${ldflags}" -o "${bin}" ./cmd/vibeguard
 
           if [[ "${GOOS}" == "windows" ]]; then
-            zip -9 "vibeguard_windows_${GOARCH}.zip" "${bin}"
+            zip -9 "vibeguard_windows_${GOARCH}${suffix}.zip" "${bin}"
           else
-            tar -czf "vibeguard_${GOOS}_${GOARCH}.tar.gz" "${bin}"
+            tar -czf "vibeguard_${GOOS}_${GOARCH}${suffix}.tar.gz" "${bin}"
           fi
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}-${{ matrix.variant }}
           path: |
             vibeguard_*.tar.gz
             vibeguard_*.zip

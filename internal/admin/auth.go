@@ -64,11 +64,11 @@ func (a *AuthManager) tryRecoverLocked() {
 	if !a.broken {
 		return
 	}
-	// 仅在 broken 状态下尝试恢复：避免每次请求都读文件。
+	// Only attempt recovery in broken state to avoid reading the file on every request.
 	data, err := os.ReadFile(a.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// 用户手动删除鉴权文件：允许无重启恢复到“未配置”状态。
+			// Auth file manually deleted: recover to "not configured" state without restarting.
 			a.configured = false
 			a.broken = false
 			a.brokenErr = ""

@@ -28,7 +28,7 @@ type RuleListItem struct {
 	Priority int    `json:"priority"`
 	Exists   bool   `json:"exists"`
 
-	// 仅订阅模式使用（用于管理端展示订阅健康状况）。
+	// Subscription-only fields (for displaying subscription health in the admin UI).
 	Verified  bool   `json:"verified,omitempty"`
 	LastError string `json:"last_error,omitempty"`
 	CheckedAt int64  `json:"checked_at,omitempty"`
@@ -50,9 +50,6 @@ type updateRuleListRequest struct {
 
 type subscribeRuleListRequest struct {
 	URL            string `json:"url"`
-	SigURL         string `json:"sig_url"`
-	PubKey         string `json:"pubkey"`
-	SHA256         string `json:"sha256"`
 	UpdateInterval string `json:"update_interval"`
 	AllowHTTP      bool   `json:"allow_http"`
 
@@ -116,18 +113,15 @@ func (a *Admin) handleRuleListsSubscribe(w http.ResponseWriter, r *http.Request)
 		ID:             id,
 		Name:           config.SanitizePatternValue(req.Name),
 		URL:            config.SanitizePatternValue(urlStr),
-		SigURL:         config.SanitizePatternValue(req.SigURL),
-		PubKey:         config.SanitizePatternValue(req.PubKey),
-		SHA256:         config.SanitizePatternValue(req.SHA256),
 		UpdateInterval: strings.TrimSpace(req.UpdateInterval),
 		AllowHTTP:      req.AllowHTTP,
 		Enabled:        enabled,
 		Priority:       priority,
 	}
 
-	// 订阅添加时做一次“拉取+校验+语法解析”：
-	// - 避免用户保存后才发现 URL/签名/格式错误
-	// - 先写缓存文件，配置落盘后可立即生效（热重载会加载缓存文件）
+	// On subscribe, do a one-time "fetch + validate + parse" upfront:
+	// - avoid only discovering URL/format errors after saving
+	// - write cache first so it can take effect immediately after config is persisted (hot-reload loads the cache file)
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	_, meta, syncErr := rulelists.SyncSubscriptionIfDue(ctx, rl, rulelists.SyncSubscriptionOptions{
@@ -142,7 +136,7 @@ func (a *Admin) handleRuleListsSubscribe(w http.ResponseWriter, r *http.Request)
 	if err := a.config.Update(func(c *config.Config) {
 		c.Patterns.RuleLists = append(c.Patterns.RuleLists, rl)
 	}); err != nil {
-		// 配置保存失败：尽量清理缓存文件，避免“孤儿文件”堆积。
+		// Config save failed: best-effort cleanup to avoid orphaned cache files.
 		if rp, ok := rulelists.SubscriptionRulesPath(rl); ok {
 			_ = os.Remove(rp)
 		}
@@ -168,7 +162,7 @@ func (a *Admin) handleRuleListsSubscribe(w http.ResponseWriter, r *http.Request)
 		Enabled:  rl.Enabled,
 		Priority: rl.Priority,
 		Exists:   exists,
-		Verified: meta.VerifiedSig || meta.VerifiedHash,
+		Verified: strings.TrimSpace(meta.LastError) == "" && strings.TrimSpace(meta.ContentSHA256) != "",
 		LastError: func() string {
 			return strings.TrimSpace(meta.LastError)
 		}(),
@@ -210,7 +204,7 @@ func (a *Admin) handleRuleListsUpload(w http.ResponseWriter, r *http.Request) {
 
 	priority := 50
 	if v := strings.TrimSpace(r.FormValue("priority")); v != "" {
-		// 简单解析：只接受 1~99；非法则回退默认。
+		// Simple parse: accept 1~99; invalid falls back to default.
 		if p, err := parseInt(v); err == nil && p >= 1 && p <= 99 {
 			priority = p
 		}
@@ -222,8 +216,9 @@ func (a *Admin) handleRuleListsUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 保存到 ~/.vibeguard/rule_lists/ 下，避免与配置/证书等文件混在一起。
-	rulesDir := filepath.Join(config.GetConfigDir(), "rule_lists")
+	// Uploaded local rule lists live under ~/.vibeguard/rules/local/ (same rules root as subscription cache) for easier user management.
+	// The legacy dir ~/.vibeguard/rule_lists/ is still readable, but new uploads go to the new directory.
+	rulesDir := filepath.Join(config.GetRulesDir(), "local")
 	if err := os.MkdirAll(rulesDir, 0700); err != nil {
 		http.Error(w, "Failed to create rules dir", http.StatusInternalServerError)
 		return
@@ -236,7 +231,7 @@ func (a *Admin) handleRuleListsUpload(w http.ResponseWriter, r *http.Request) {
 	filename := id + "_" + base + ".vgrules"
 	absPath := filepath.Join(rulesDir, filename)
 
-	// 写入文件（0600），再进行解析校验，避免“添加成功但不生效”的困惑。
+	// Write file (0600), then parse/validate to avoid "added successfully but not effective" confusion.
 	if err := writeFile0600(absPath, f); err != nil {
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
 		return
@@ -249,7 +244,7 @@ func (a *Admin) handleRuleListsUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tildePath := filepath.ToSlash(filepath.Join("~", ".vibeguard", "rule_lists", filename))
+	tildePath := filepath.ToSlash(filepath.Join("~", ".vibeguard", "rules", "local", filename))
 	if err := a.config.Update(func(c *config.Config) {
 		c.Patterns.RuleLists = append(c.Patterns.RuleLists, config.RuleListConfig{
 			ID:       id,
@@ -272,7 +267,7 @@ func (a *Admin) handleRuleListsUpload(w http.ResponseWriter, r *http.Request) {
 		Priority: priority,
 		Exists:   true,
 	}
-	_ = rec // 未来可返回统计信息；当前仅做校验。
+	_ = rec // May return stats in the future; currently used for validation only.
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -294,7 +289,7 @@ func (a *Admin) handleRuleListsItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 先从配置里移除；同时尽量删除由管理端创建的本地文件（仅限管理目录内）。
+	// Remove from config first; also best-effort delete admin-managed local files (only within managed directory).
 	var removed config.RuleListConfig
 	if err := a.config.Update(func(c *config.Config) {
 		out := c.Patterns.RuleLists[:0]
@@ -355,7 +350,7 @@ func (a *Admin) getRuleLists(w http.ResponseWriter, r *http.Request) {
 			}
 			if mp, ok := rulelists.SubscriptionMetaPath(rl); ok {
 				if meta, ok, _ := rulelists.LoadSubscriptionMeta(mp); ok {
-					item.Verified = meta.VerifiedSig || meta.VerifiedHash
+					item.Verified = strings.TrimSpace(meta.LastError) == "" && strings.TrimSpace(meta.ContentSHA256) != ""
 					item.LastError = strings.TrimSpace(meta.LastError)
 					item.CheckedAt = meta.CheckedAt
 					item.UpdatedAt = meta.UpdatedAt
@@ -430,7 +425,7 @@ func (a *Admin) updateRuleList(w http.ResponseWriter, r *http.Request) {
 			if req.Priority != nil {
 				rl.Priority = *req.Priority
 			}
-			// Path/URL/ID 不允许在管理端更新：避免“指向任意文件/远端”的风险。
+			// Path/URL/ID are not editable in the admin UI to avoid pointing to arbitrary files/remote URLs.
 			return
 		}
 	}); err != nil {
@@ -553,22 +548,27 @@ func tryRemoveManagedRuleListFile(absPath string) error {
 	if absPath == "" {
 		return nil
 	}
-	rulesDir := filepath.Join(config.GetConfigDir(), "rule_lists")
-	rulesDir = filepath.Clean(rulesDir)
-
 	ap, err := filepath.Abs(absPath)
 	if err != nil {
 		return nil
 	}
-	rel, err := filepath.Rel(rulesDir, ap)
-	if err != nil {
+
+	managedDirs := []string{
+		filepath.Clean(filepath.Join(config.GetRulesDir(), "local")),
+		filepath.Clean(filepath.Join(config.GetConfigDir(), "rule_lists")), // legacy
+	}
+	for _, base := range managedDirs {
+		rel, err := filepath.Rel(base, ap)
+		if err != nil {
+			continue
+		}
+		if rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
+			continue
+		}
+		// Only delete files under the managed directory.
+		_ = os.Remove(ap)
 		return nil
 	}
-	if rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
-		// 不允许删除非管理目录内文件
-		return nil
-	}
-	_ = os.Remove(ap)
 	return nil
 }
 
@@ -598,7 +598,7 @@ func tryRemoveManagedSubscriptionFile(absPath string) error {
 		return nil
 	}
 	if rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
-		// 仅允许删除订阅缓存目录内文件
+		// Only allow deleting files under the subscription cache directory.
 		return nil
 	}
 	_ = os.Remove(ap)

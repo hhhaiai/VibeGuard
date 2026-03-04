@@ -1,6 +1,6 @@
 package recognizer
 
-// Registry 管理一组 Recognizer。
+// Registry manages a set of Recognizers.
 type Registry struct {
 	recognizers []Recognizer
 }

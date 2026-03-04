@@ -28,10 +28,10 @@ type Engine struct {
 func NewEngine(s *session.Manager, prefix string) *Engine {
 	// Pattern: __VG_CATEGORY_HASH12__ or __VG_CATEGORY_HASH12_N__
 	escapedPrefix := regexp.QuoteMeta(prefix)
-	// category 允许包含下划线（如 CHINA_PHONE），也允许用户自定义更宽松的命名。
+	// category allows underscores (e.g. CHINA_PHONE) and also permits user-defined relaxed naming.
 	//
-	// 注意：占位符两侧的 "__" 在 Markdown 里可能被模型/渲染器当作强调标记而省略，
-	// 因此这里支持“可选尾部 __”，并额外支持“去掉前导下划线”的变体（如 VG_TEXT_xxx）。
+	// Note: the "__" around placeholders may be treated as Markdown emphasis and dropped by some models/renderers.
+	// Therefore we allow an optional trailing "__", and also support a "no leading underscores" variant (e.g. VG_TEXT_xxx).
 	patternFull := escapedPrefix + `[A-Za-z0-9_]+_[a-f0-9]{12}(?:_\d+)?(?:__)?`
 
 	leadingUnderscores := countLeadingUnderscores(prefix)
@@ -142,13 +142,13 @@ func (e *Engine) RestoreString(input string) string {
 	return string(e.Restore([]byte(input)))
 }
 
-// Prefix 返回占位符前缀（例如 "__VG_"）。
+// Prefix returns the placeholder prefix (e.g. "__VG_").
 func (e *Engine) Prefix() string {
 	return e.prefix
 }
 
-// MatchAt 判断 input[start:] 是否以一个“完整占位符”开头；若是，返回匹配结束位置。
-// 该方法用于流式场景判断是否存在“未完整到达的占位符”，避免把前缀片段提前输出导致无法还原。
+// MatchAt checks whether input[start:] begins with a "complete placeholder"; if so, it returns the end position.
+// This is used for streaming boundary detection to avoid emitting an incomplete prefix fragment that can no longer be restored.
 func (e *Engine) MatchAt(input []byte, start int) (end int, ok bool) {
 	if start < 0 || start >= len(input) {
 		return 0, false

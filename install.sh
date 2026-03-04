@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# VibeGuard 安装脚本（中英双语） / VibeGuard installer (ZH/EN)
+# VibeGuard installer script (bilingual strings; comments in English)
 #
-# 功能 / Features:
-# - 安装 vibeguard 二进制（优先下载 Release 预编译，其次从源码构建，再次 go install） / Install vibeguard (prefer Release binaries; fallback to source build; then go install)
-# - 导出（“下载”）系统信任所需的 CA 证书到文件 / Export ("download") the CA certificate to a file
-# - 可选：安装 CA 到系统信任库（会触发 sudo） / Optional: install CA into system trust store (will invoke sudo)
+# Features:
+# - Install vibeguard binary (prefer Release binaries; fallback to source build; then go install)
+# - Export ("download") the CA certificate to a file
+# - Optional: install CA into system trust store (may invoke sudo)
 #
-# 用法 / Usage:
+# Usage:
 #   bash install.sh
 #
-# 提示 / Note:
-#   默认不修改你的 shell 配置；如需“全局可调用”，可用 --path auto|add 自动写入 PATH。
-#   如需“开机自启后台运行”，可用 --autostart auto|add 安装用户级自启服务（macOS LaunchAgent / Linux systemd --user）。
+# Notes:
+#   By default, this script does not modify your shell config. For global access, use --path auto|add to write PATH.
+#   For autostart background service, use --autostart auto|add (macOS LaunchAgent / Linux systemd --user).
 
 SCRIPT_LANG=""     # zh|en
 SCRIPT_LANG_SET="0"
@@ -21,7 +21,7 @@ TRUST_MODE_SET="0"
 DO_EXPORT_SET="0"
 
 to_lower() {
-  # macOS 默认 bash 3.2 不支持 ${var,,}
+  # macOS default bash 3.2 does not support ${var,,}
   echo "${1:-}" | tr '[:upper:]' '[:lower:]'
 }
 
@@ -36,7 +36,7 @@ normalize_lang() {
 }
 
 t() {
-  # 用法：t "中文" "English"
+  # Usage: t "Chinese" "English"
   if [[ "${SCRIPT_LANG}" == "zh" ]]; then
     printf "%s" "$1"
   else
@@ -50,7 +50,7 @@ say() {
 }
 
 persist_lang_best_effort() {
-  # 将安装脚本选择的语言持久化到 ~/.vibeguard/lang，供管理页与卸载脚本默认使用。
+  # Persist the selected language to ~/.vibeguard/lang (used as default by the admin UI and uninstall script).
   # Best-effort: do not fail installation if writing fails.
   [[ -n "${HOME:-}" ]] || return 0
   local dir="${HOME}/.vibeguard"
@@ -76,7 +76,7 @@ in_repo() {
 }
 
 normalize_version() {
-  # 允许输入 0.2.0 / v0.2.0 / latest
+  # Allow 0.2.0 / v0.2.0 / latest
   local v="${1:-}"
   v="$(echo "${v}" | tr -d '[:space:]')"
   if [[ -z "${v}" || "${v}" == "latest" ]]; then
@@ -141,9 +141,11 @@ install_vibeguard_from_release() {
   local repo="${2:-inkdust2021/VibeGuard}"
   local version="${3:-latest}"
   local verify="${4:-1}" # 1|0
+  local variant="${5:-lite}" # lite|full
 
   [[ -n "${install_dir}" ]] || return 1
   version="$(normalize_version "${version}")"
+  variant="$(to_lower "${variant}")"
 
   local goos
   goos="$(detect_goos)"
@@ -170,7 +172,14 @@ install_vibeguard_from_release() {
     dl_base="${base}/download/${version}"
   fi
 
-  local asset="vibeguard_${goos}_${goarch}.tar.gz"
+  local suffix=""
+  case "${variant}" in
+    full) suffix="_full" ;;
+    lite|"") suffix="" ;;
+    *) suffix="" ;;
+  esac
+
+  local asset="vibeguard_${goos}_${goarch}${suffix}.tar.gz"
   local url_asset="${dl_base}/${asset}"
   local url_sum="${dl_base}/checksums.txt"
 
@@ -178,6 +187,7 @@ install_vibeguard_from_release() {
   echo "$(t "仓库：" "Repo: ")${repo}"
   echo "$(t "版本：" "Version: ")${version}"
   echo "$(t "平台：" "Platform: ")${goos}/${goarch}"
+  echo "$(t "变体：" "Variant: ")${variant}"
 
   if [[ "${verify}" == "1" ]]; then
     if ! (have sha256sum || have shasum || have openssl); then
@@ -235,9 +245,9 @@ install_vibeguard_from_release() {
   )
 }
 
-# 交互检测：
-# - 当脚本通过管道执行（curl | bash）时，stdin 不是 TTY，但 /dev/tty 通常可用；
-# - 我们会在解析参数后尝试打开 /dev/tty 到 FD=3（VG_TTY_FD=3），以便继续交互。
+# Interactivity detection:
+# - When piped (curl | bash), stdin is not a TTY, but /dev/tty is often available.
+# - After parsing args, we try to open /dev/tty as FD=3 (VG_TTY_FD=3) to continue prompting.
 is_tty() {
   if [[ "${VG_TTY_OK:-0}" == "1" ]]; then
     return 0
@@ -251,7 +261,7 @@ can_prompt() {
 }
 
 prompt() {
-  # 用法：prompt "提示: " "默认值"
+  # Usage: prompt "Prompt: " "default"
   local msg="${1:-}"
   local def="${2:-}"
   local ans=""
@@ -275,7 +285,7 @@ prompt() {
 }
 
 run_with_tty() {
-  # 在 curl | bash 场景下，把子进程的 stdin 绑定到 /dev/tty（若可用），避免读到管道 EOF。
+  # In curl | bash mode, bind child stdin to /dev/tty (if available) to avoid reading pipe EOF.
   if [[ -n "${VG_TTY_FD:-}" ]]; then
     "$@" <&${VG_TTY_FD}
   else
@@ -318,7 +328,7 @@ trust_ca_darwin_system() {
   have security || return 1
   have sudo || return 1
 
-  # system 安装需要 sudo + 交互 TTY
+  # System trust install requires sudo + an interactive TTY.
   if [[ "${NON_INTERACTIVE:-0}" == "1" ]]; then
     return 1
   fi
@@ -439,7 +449,7 @@ ensure_shell_helper_in_rc() {
   {
     echo ""
     echo "${marker}"
-    echo "# Docker-only helper：管理命令在容器内执行；助手命令在宿主机执行，但仅对该进程注入代理与 CA。"
+    echo "# Docker-only helper: admin commands run in the container; assistant commands run on the host and inject proxy+CA for this process only."
     if [[ -n "${docker_dir}" ]]; then
       echo "export VIBEGUARD_DOCKER_DIR=\"${docker_dir}\""
     fi
@@ -577,7 +587,7 @@ docker_install() {
     say "未检测到 CA 证书（你可以稍后重试导出/信任）" "CA certificate not found yet (retry export/trust later)"
   fi
 
-  # 可选：导出 CA 到文件（便于手动安装/排查）
+  # Optional: export CA to a file (for manual install/debugging)
   if [[ -n "${tmp_ca}" && -f "${tmp_ca}" ]]; then
     if [[ "${DO_EXPORT_SET}" == "0" ]] && can_prompt; then
       echo ""
@@ -612,7 +622,7 @@ docker_install() {
     fi
   fi
 
-  # 稳定导出一份到 ~/.vibeguard（供 shell helper / NODE_EXTRA_CA_CERTS 使用；不覆盖 native 的 ~/.vibeguard/ca.crt）
+  # Also export a stable copy to ~/.vibeguard (for shell helper / NODE_EXTRA_CA_CERTS); do not overwrite ~/.vibeguard/ca.crt.
   local stable_ca=""
   if [[ -n "${HOME:-}" ]]; then
     stable_ca="${HOME}/.vibeguard/vibeguard-docker-ca.crt"
@@ -626,7 +636,7 @@ docker_install() {
     fi
   fi
 
-  # 可选：安装到宿主机信任库（HTTPS MITM 必需）
+  # Optional: install into the HOST trust store (required for HTTPS MITM)
   if [[ "${TRUST_MODE_SET}" == "0" && -n "${tmp_ca}" && -f "${tmp_ca}" ]] && can_prompt; then
     echo ""
     ans="$(prompt "$(t "是否将 CA 安装到“宿主机”信任库（HTTPS MITM 必需，推荐）？[Y/n]: " "Install CA into the HOST trust store (required for HTTPS MITM, recommended)? [Y/n]: ")" "Y")"
@@ -660,7 +670,8 @@ docker_install() {
       ;;
   esac
 
-  # 可选：写入 shell helper（vibeguard 函数），用于 Docker-only 场景下“在宿主机运行助手，但只注入当前进程代理与 CA”。
+  # Optional: write a shell helper (vibeguard function) for Docker-only mode:
+  # run a host helper while injecting proxy + CA into the current process only.
   if can_prompt; then
     rc_file="$(detect_shell_rc || true)"
     if [[ -z "${rc_file}" ]]; then
@@ -823,12 +834,12 @@ proxy_hostport_from_listen() {
     return 0
   fi
 
-  # 常见：0.0.0.0:28657 -> 127.0.0.1:28657（给客户端用更合理）
+  # Common: 0.0.0.0:28657 -> 127.0.0.1:28657 (more reasonable for clients)
   if [[ "${listen}" == 0.0.0.0:* ]]; then
     echo "127.0.0.1:${listen#0.0.0.0:}"
     return 0
   fi
-  # 仅端口：:28657
+  # Port-only form: :28657
   if [[ "${listen}" == :* ]]; then
     echo "127.0.0.1${listen}"
     return 0
@@ -887,7 +898,7 @@ enable_launch_agent() {
 
   have launchctl || return 1
 
-  # 先清理旧的（避免重复注册）
+  # Clean up existing service first (avoid duplicate registration)
   launchctl bootout "${domain}" "${plist_path}" >/dev/null 2>&1 || true
 
   if ! launchctl bootstrap "${domain}" "${plist_path}" >/dev/null 2>&1; then
@@ -943,6 +954,7 @@ NON_INTERACTIVE="0"
 INSTALL_METHOD="auto" # auto|native|docker
 INSTALL_VERSION="latest"
 VERIFY_RELEASE="1"
+INSTALL_VARIANT="auto" # auto|lite|full
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -952,6 +964,8 @@ while [[ $# -gt 0 ]]; do
       INSTALL_METHOD="${2:-}"; shift 2;;
     --version)
       INSTALL_VERSION="${2:-}"; shift 2;;
+    --variant)
+      INSTALL_VARIANT="${2:-}"; shift 2;;
     --trust)
       TRUST_MODE="${2:-}"; TRUST_MODE_SET="1"; shift 2;;
     --export)
@@ -974,6 +988,7 @@ VibeGuard 安装脚本 / Installer
   --dir DIR              安装目录 / Install dir (default: $HOME/.local/bin)
   --method METHOD        auto|native|docker (default: auto)
   --version VERSION      安装版本：latest|vX.Y.Z（native 会优先下载 Release） / Version: latest|vX.Y.Z (native prefers Release)
+  --variant VARIANT      auto|lite|full (default: auto; full includes SQLite audit persistence)
   --trust MODE           system|user|auto|skip (default: system)
   --export               导出 CA 证书到文件 / Export CA cert to a file
   --lang LANG            zh|en (default: auto)
@@ -991,7 +1006,7 @@ EOF
   esac
 done
 
-# 交互输入：优先尝试打开 /dev/tty（支持 curl | bash 仍可交互）
+# Interactive input: try /dev/tty first (works even with curl | bash)
 VG_TTY_OK="0"
 VG_TTY_FD=""
 if exec 3<>/dev/tty 2>/dev/null; then
@@ -1002,17 +1017,17 @@ elif [[ -t 0 && -t 1 ]]; then
   VG_TTY_FD=""
 fi
 
-# 若无法交互且用户未显式指定，则自动切换为非交互模式
+# If not interactive and the user did not explicitly specify, switch to non-interactive mode.
 if [[ "${NON_INTERACTIVE}" == "0" && "${VG_TTY_OK}" != "1" ]]; then
   NON_INTERACTIVE="1"
 fi
 
-# 非交互模式下，默认跳过信任库安装（避免 sudo/系统信任因缺少 TTY 失败）
+# In non-interactive mode, skip trust store install by default (avoid sudo/system trust failures without a TTY).
 if [[ "${TRUST_MODE_SET}" == "0" && "${NON_INTERACTIVE}" == "1" ]]; then
   TRUST_MODE="skip"
 fi
 
-# 语言选择：优先 --lang，其次 VIBEGUARD_LANG，然后根据系统语言推断；若可交互则启动时询问一次。
+# Language selection: --lang > VIBEGUARD_LANG > infer from locale; if interactive, prompt once at startup.
 if [[ "${SCRIPT_LANG_SET}" == "1" ]]; then
   SCRIPT_LANG="$(normalize_lang "${SCRIPT_LANG}")"
   [[ -n "${SCRIPT_LANG}" ]] || die "无效的 --lang（请用 zh 或 en）" "Invalid --lang (use zh or en)"
@@ -1066,8 +1081,14 @@ case "$(to_lower "${INSTALL_METHOD}")" in
 esac
 INSTALL_METHOD="$(to_lower "${INSTALL_METHOD}")"
 
-# 安装方式选择（支持 curl | bash 交互）：
-# - auto：可交互时询问；不可交互时按环境自动选择
+case "$(to_lower "${INSTALL_VARIANT}")" in
+  auto|lite|full) ;;
+  *) die "无效的 --variant（可选：auto|lite|full）" "Invalid --variant (expected: auto|lite|full)" ;;
+esac
+INSTALL_VARIANT="$(to_lower "${INSTALL_VARIANT}")"
+
+# Install method selection (supports curl | bash):
+# - auto: prompt if interactive; otherwise auto-select based on environment
 if [[ "${INSTALL_METHOD}" == "auto" ]]; then
   if can_prompt; then
     say "选择安装方式" "Choose install method"
@@ -1092,8 +1113,8 @@ if [[ "${INSTALL_METHOD}" == "auto" ]]; then
         ;;
     esac
   else
-    # 非交互：尽量选择可用方案
-    if have docker && ! have go; then
+	    # Non-interactive: choose the most likely workable option.
+	    if have docker && ! have go; then
       INSTALL_METHOD="docker"
     else
       INSTALL_METHOD="native"
@@ -1106,6 +1127,22 @@ if [[ "${INSTALL_METHOD}" == "docker" ]]; then
   exit 0
 fi
 
+if [[ "${INSTALL_VARIANT}" == "auto" ]]; then
+  if can_prompt; then
+    say "选择安装变体" "Choose install variant"
+    echo "  1) $(t "Lite（默认，不含 SQLite 审计持久化，体积更小）" "Lite (default, no SQLite audit persistence, smaller)")"
+    echo "  2) $(t "Full（包含 SQLite 审计持久化，体积更大）" "Full (includes SQLite audit persistence, larger)")"
+    choice="$(prompt "$(t "选择 [1]: " "Choose [1]: ")" "1")"
+    case "${choice}" in
+      2) INSTALL_VARIANT="full" ;;
+      1|"") INSTALL_VARIANT="lite" ;;
+      *) INSTALL_VARIANT="lite" ;;
+    esac
+  else
+    INSTALL_VARIANT="lite"
+  fi
+fi
+
 INSTALL_DIR="$(expand_user_path "${INSTALL_DIR}")"
 mkdir -p "${INSTALL_DIR}"
 
@@ -1113,19 +1150,27 @@ say "安装目录：${INSTALL_DIR}" "Install dir: ${INSTALL_DIR}"
 
 release_repo="${VG_INSTALL_REPO:-inkdust2021/VibeGuard}"
 if ! in_repo; then
-  # 非源码目录：优先从 GitHub Release 下载预编译二进制（不需要 Go）
-  if ! install_vibeguard_from_release "${INSTALL_DIR}" "${release_repo}" "${INSTALL_VERSION}" "${VERIFY_RELEASE}"; then
+  # Not in a source tree: prefer GitHub Release binaries (no Go required)
+  if ! install_vibeguard_from_release "${INSTALL_DIR}" "${release_repo}" "${INSTALL_VERSION}" "${VERIFY_RELEASE}" "${INSTALL_VARIANT}"; then
     say "Release 安装失败：将回退到 go install（需要 Go）" "Release install failed: falling back to go install (requires Go)"
     need go
-    GOBIN="${INSTALL_DIR}" go install github.com/inkdust2021/vibeguard/cmd/vibeguard@latest
+    if [[ "${INSTALL_VARIANT}" == "full" ]]; then
+      GOBIN="${INSTALL_DIR}" go install -tags vibeguard_full github.com/inkdust2021/vibeguard/cmd/vibeguard@latest
+    else
+      GOBIN="${INSTALL_DIR}" go install github.com/inkdust2021/vibeguard/cmd/vibeguard@latest
+    fi
   fi
 else
-  # 源码目录：默认本地构建（更适合开发/调试）
+  # In a source tree: build locally by default (better for dev/debug)
   need go
   say "检测到仓库源码：从源码构建并安装" "Repo detected: build from source"
   tmp="$(mktemp -d -t vibeguard-build.XXXXXX 2>/dev/null || mktemp -d "/tmp/vibeguard-build.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT
-  go build -o "${tmp}/vibeguard" ./cmd/vibeguard
+  if [[ "${INSTALL_VARIANT}" == "full" ]]; then
+    go build -tags vibeguard_full -o "${tmp}/vibeguard" ./cmd/vibeguard
+  else
+    go build -o "${tmp}/vibeguard" ./cmd/vibeguard
+  fi
   if have install; then
     install -m 0755 "${tmp}/vibeguard" "${INSTALL_DIR}/vibeguard"
   else
@@ -1150,7 +1195,7 @@ CA_CERT="${CONFIG_DIR}/ca.crt"
 CA_KEY="${CONFIG_DIR}/ca.key"
 CONFIG_FILE="${CONFIG_DIR}/config.yaml"
 
-# 可选：将安装目录写入 PATH（永久生效）
+# Optional: add install dir to PATH (persistent)
 resolved="$(command -v vibeguard 2>/dev/null || true)"
 need_path="0"
 reason=""
@@ -1210,7 +1255,7 @@ if [[ ! -f "${CA_CERT}" ]]; then
   else
 	    say "未找到 CA：将运行 vibeguard init 生成 CA（不覆盖已有配置）" "CA not found: running vibeguard init to generate CA"
 	    if [[ "${NON_INTERACTIVE}" == "1" ]]; then
-	      # 选择默认配置 + 生成 CA + 跳过 init 内置的 trust（由脚本单独处理）
+	      # Choose default config + generate CA + skip init's built-in trust (handled by this script).
 	      printf '\n\n\n\n3\n' | VIBEGUARD_LANG="${SCRIPT_LANG}" "${VG}" init || true
 	    else
 	      VIBEGUARD_LANG="${SCRIPT_LANG}" run_with_tty "${VG}" init || true
@@ -1288,13 +1333,13 @@ case "${TRUST_MODE}" in
     die "无效的 --trust：${TRUST_MODE}" "Invalid --trust: ${TRUST_MODE}";;
 esac
 
-# 基于当前配置推断代理地址（用于写入环境变量与输出提示）
+# Infer proxy address from current config (for env vars and output hints)
 listen_addr="$(detect_listen_from_config "${CONFIG_FILE}" || true)"
 proxy_hostport="$(proxy_hostport_from_listen "${listen_addr}")"
 proxy_url="http://${proxy_hostport}"
 admin_url="http://${proxy_hostport}/manager/"
 
-# 可选：开机自启后台运行（用户级服务）
+# Optional: autostart background service (user-level)
 autostart_enabled="0"
 if [[ "${AUTOSTART_MODE}" != "skip" ]]; then
   do_autostart="0"
@@ -1344,7 +1389,7 @@ if [[ "${AUTOSTART_MODE}" != "skip" ]]; then
   fi
 fi
 
-# 如果没有启用自启服务，但写入了代理环境变量，建议立即启动后台代理，避免“已设置代理但端口未监听”导致网络请求失败。
+# If autostart is not enabled but proxy env vars were set, start the background proxy now to avoid "proxy set but port not listening".
 say "启动后台代理" "Starting proxy in background"
 if ! VIBEGUARD_LANG="${SCRIPT_LANG}" "${VG}" start; then
   say "后台代理启动失败（你可稍后手动运行：vibeguard start --foreground）" "Failed to start proxy (you can run: vibeguard start --foreground)"

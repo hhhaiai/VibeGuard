@@ -1,10 +1,11 @@
 package redact
 
 import (
-	"bytes"
 	"regexp"
 	"sort"
+	"sync"
 
+	"github.com/inkdust2021/vibeguard/internal/ahocorasick"
 	"github.com/inkdust2021/vibeguard/internal/session"
 )
 
@@ -14,14 +15,19 @@ type Match struct {
 	End      int
 	Original string
 	Category string
-	// Placeholder 是替换后的占位符（例如 "__VG_EMAIL_..."）。
-	// 仅在替换阶段生成；用于“拦截审计”等需要展示命中结果的场景。
+	// Placeholder is the generated placeholder (e.g. "__VG_EMAIL_...").
+	// It is only generated during replacement; used for audit/inspection displays that need to show redaction hits.
 	Placeholder string
 }
 
 // Engine handles sensitive data detection and replacement
 type Engine struct {
 	keywords  map[string]string // keyword -> category
+	kwOnce    sync.Once
+	kwAC      *ahocorasick.Matcher
+	kwCats    []string // pattern id -> category
+	kwScratch sync.Pool
+
 	regex     []*regexp.Regexp
 	regexCats []string // category for each regex
 	exclude   map[string]bool
@@ -68,32 +74,40 @@ func (e *Engine) Redact(input []byte) ([]byte, int) {
 	return out, len(matches)
 }
 
-// RedactWithMatches 扫描并替换敏感信息，同时返回本次命中的详细匹配信息。
-// 注意：matches 中的 Original 为原始命中内容，调用方如需展示到管理端，应遵循隐私配置进行脱敏/截断。
+// RedactWithMatches scans and redacts sensitive data, returning detailed match information for this run.
+// Note: matches.Original contains the original hit content; callers that display it in the admin UI must apply privacy settings (redaction/truncation).
 func (e *Engine) RedactWithMatches(input []byte) ([]byte, []Match) {
 	var matches []Match
 
-	// Keyword matching using simple search (Aho-Corasick will be added later)
-	for keyword, category := range e.keywords {
-		idx := 0
-		for {
-			pos := bytes.Index(input[idx:], []byte(keyword))
-			if pos == -1 {
-				break
-			}
-			start := idx + pos
-			end := start + len(keyword)
+	e.ensureKeywordMatcher()
+	if e.kwAC != nil {
+		// Rough estimate: each keyword hits ~0-1 times; preallocation reduces growth.
+		matches = make([]Match, 0, min(len(e.kwCats), 64))
 
-			// Check exclude
-			if !e.isExcluded(string(input[start:end])) {
-				matches = append(matches, Match{
-					Start:    start,
-					End:      end,
-					Original: string(input[start:end]),
-					Category: category,
-				})
+		scratchAny := e.kwScratch.Get()
+		lastEnd, _ := scratchAny.([]int)
+
+		e.kwAC.EachMatchNonOverlappingPerPattern(input, lastEnd, func(id, start, end int) bool {
+			cat := ""
+			if id >= 0 && id < len(e.kwCats) {
+				cat = e.kwCats[id]
 			}
-			idx = end
+
+			orig := string(input[start:end])
+			if e.isExcluded(orig) {
+				return true
+			}
+			matches = append(matches, Match{
+				Start:    start,
+				End:      end,
+				Original: orig,
+				Category: cat,
+			})
+			return true
+		})
+
+		if lastEnd != nil {
+			e.kwScratch.Put(lastEnd)
 		}
 	}
 
@@ -106,7 +120,7 @@ func (e *Engine) RedactWithMatches(input []byte) ([]byte, []Match) {
 			}
 
 			start, end := loc[0], loc[1]
-			// 如果存在捕获组，优先使用第一个捕获组范围进行脱敏替换
+			// If capture groups exist, prefer the first capture group's range for redaction replacement.
 			if len(loc) >= 4 && loc[2] >= 0 && loc[3] >= 0 {
 				start, end = loc[2], loc[3]
 			}
@@ -126,10 +140,10 @@ func (e *Engine) RedactWithMatches(input []byte) ([]byte, []Match) {
 		}
 	}
 
-	// 重要：不同规则之间可能出现“重叠命中”（例如用户配置了过宽的正则 `.*@gmail\.com`，
-	// 同时又启用了内置 `email` 规则）。如果直接按 start 逆序替换，会在重叠区域把占位符切开，
-	// 造成输出出现破碎占位符（甚至把原文漏出来）。
-	// 这里先把重叠命中拆分为“互不重叠的替换片段”，确保每个 byte 只会被替换一次。
+	// Important: different rules can produce overlapping matches (e.g. a too-broad regex like `.*@gmail\.com`
+	// plus the built-in `email` rule). If we replace purely by reverse start order, overlaps can slice placeholders,
+	// producing broken placeholders (and potentially leaking original content).
+	// Split overlaps into non-overlapping replacement segments so each byte is replaced at most once.
 	type span struct {
 		start int
 		end   int
@@ -169,7 +183,7 @@ func (e *Engine) RedactWithMatches(input []byte) ([]byte, []Match) {
 		covered = append(covered, span{})
 		copy(covered[i+1:], covered[i:])
 		covered[i] = s
-		// 合并相邻/重叠区间，保持 covered 非重叠且有序，简化后续 subtract。
+		// Merge adjacent/overlapping spans to keep covered non-overlapping and ordered, simplifying subtract.
 		if len(covered) <= 1 {
 			return covered
 		}
@@ -191,7 +205,8 @@ func (e *Engine) RedactWithMatches(input []byte) ([]byte, []Match) {
 		return merged
 	}
 
-	// 先按 start 逆序、end 逆序排序：优先处理“更靠右/更长”的命中，便于把左侧的大范围命中拆分掉。
+	// Sort by start desc, then end desc: process "further right / longer" matches first,
+	// making it easier to split large left-side matches.
 	sort.Slice(matches, func(i, j int) bool {
 		if matches[i].Start != matches[j].Start {
 			return matches[i].Start > matches[j].Start
@@ -201,7 +216,7 @@ func (e *Engine) RedactWithMatches(input []byte) ([]byte, []Match) {
 
 	var (
 		planned []Match
-		covered []span // start 升序、互不重叠
+		covered []span // sorted by start, non-overlapping
 	)
 	for _, m := range matches {
 		for _, seg := range subtractCovered(m.Start, m.End, covered) {
@@ -218,7 +233,7 @@ func (e *Engine) RedactWithMatches(input []byte) ([]byte, []Match) {
 		}
 	}
 
-	// planned 片段互不重叠；按 start 逆序排序以安全替换。
+	// planned segments are non-overlapping; sort by start desc for safe in-place replacement.
 	sort.Slice(planned, func(i, j int) bool {
 		return planned[i].Start > planned[j].Start
 	})
@@ -264,4 +279,39 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (e *Engine) ensureKeywordMatcher() {
+	if e == nil {
+		return
+	}
+	e.kwOnce.Do(func() {
+		if len(e.keywords) == 0 {
+			return
+		}
+
+		// To avoid nondeterminism from map iteration order, sort keywords before building the automaton.
+		keys := make([]string, 0, len(e.keywords))
+		for k := range e.keywords {
+			if k == "" {
+				continue
+			}
+			keys = append(keys, k)
+		}
+		if len(keys) == 0 {
+			return
+		}
+		sort.Strings(keys)
+
+		pats := make([]string, 0, len(keys))
+		cats := make([]string, 0, len(keys))
+		for _, k := range keys {
+			pats = append(pats, k)
+			cats = append(cats, e.keywords[k])
+		}
+
+		e.kwAC = ahocorasick.New(pats)
+		e.kwCats = cats
+		e.kwScratch.New = func() any { return make([]int, e.kwAC.PatternCount()) }
+	})
 }

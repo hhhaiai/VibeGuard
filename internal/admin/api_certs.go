@@ -18,10 +18,10 @@ type CertResponse struct {
 		NotAfter          string `json:"not_after"`
 		FingerprintSHA256 string `json:"fingerprint_sha256"`
 		IsTrusted         bool   `json:"is_trusted"`
-		// TrustStatus 表示“当前运行环境”对 CA 的信任检测结果：
-		// - trusted: 已检测到受信任
-		// - untrusted: 未检测到受信任
-		// - unknown: 无法检测（例如容器内运行，无法判断宿主机/浏览器是否已信任）
+		// TrustStatus indicates trust detection result for the current runtime environment:
+		// - trusted: detected as trusted
+		// - untrusted: detected as not trusted
+		// - unknown: cannot reliably detect (e.g. running inside a container; cannot tell if the host/browser trusts the exported ca.crt)
 		TrustStatus string `json:"trust_status"`
 		CertPath    string `json:"cert_path"`
 	} `json:"ca"`
@@ -60,7 +60,7 @@ func (a *Admin) handleCertificates(w http.ResponseWriter, r *http.Request) {
 	if resp.CA.IsTrusted {
 		resp.CA.TrustStatus = "trusted"
 	} else if isLikelyContainerRuntime() {
-		// 容器内运行时，“系统信任库”与宿主机/浏览器并不一致，后端无法可靠判断客户端是否已信任导出的 ca.crt。
+		// In containers, the "system trust store" differs from the host/browser; the backend cannot reliably determine client trust for the exported ca.crt.
 		resp.CA.TrustStatus = "unknown"
 	} else {
 		resp.CA.TrustStatus = "untrusted"
@@ -78,7 +78,7 @@ func (a *Admin) handleCertTrust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 管理界面运行在服务端进程中，不适合触发 sudo 交互；这里只做用户级信任库安装。
+	// The admin UI runs in the server process and should not trigger interactive sudo; only install into the user trust store here.
 	if err := cert.InstallCAToTrustStore(a.certPath, cert.TrustInstallModeUser); err != nil {
 		http.Error(w, "安装到用户信任库失败。若需要安装到系统信任库（sudo），请在终端运行：vibeguard trust --mode system\n\n"+err.Error(), http.StatusInternalServerError)
 		return
