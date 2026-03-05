@@ -34,11 +34,12 @@ type ProxyConfig struct {
 
 // PatternsConfig holds pattern matching configuration
 type PatternsConfig struct {
-	Keywords  []KeywordPattern `yaml:"keywords"`
-	Regex     []RegexPattern   `yaml:"regex"`
-	Builtin   []string         `yaml:"builtin"`
-	Exclude   []string         `yaml:"exclude"`
-	RuleLists []RuleListConfig `yaml:"rule_lists"`
+	Keywords    []KeywordPattern   `yaml:"keywords"`
+	Regex       []RegexPattern     `yaml:"regex"`
+	Builtin     []string           `yaml:"builtin"`
+	Exclude     []string           `yaml:"exclude"`
+	SecretFiles []SecretFileConfig `yaml:"secret_files"`
+	RuleLists   []RuleListConfig   `yaml:"rule_lists"`
 	// NER toggles and configures named-entity recognition (external Presidio engine; off by default).
 	NER NERConfig `yaml:"ner"`
 }
@@ -91,6 +92,23 @@ type RegexPattern struct {
 	Category string `yaml:"category" json:"category"`
 }
 
+// SecretFileConfig describes a local file whose contents should be treated as secrets and redacted if they appear in prompts.
+// Note: this does not prevent the client from reading files; it only prevents accidental exfiltration to upstream LLM APIs.
+type SecretFileConfig struct {
+	// Path is a local file path (supports ~). Relative paths are resolved relative to the config file that defined it.
+	Path string `yaml:"path" json:"path"`
+	// Format controls how the file is parsed:
+	// - dotenv: parse KEY=VALUE lines and import VALUEs as keywords (recommended for .env)
+	// - lines: treat each non-empty non-comment line as a keyword
+	Format string `yaml:"format" json:"format"`
+	// Category is the match category used in audit/logging. Defaults to DOTENV/SECRET_FILE based on format.
+	Category string `yaml:"category" json:"category"`
+	// MinValueLen filters out short values to reduce false positives. Default is 8.
+	MinValueLen int `yaml:"min_value_len" json:"min_value_len"`
+	// Enabled defaults to true when omitted.
+	Enabled *bool `yaml:"enabled" json:"enabled"`
+}
+
 // TargetConfig represents a target host configuration
 type TargetConfig struct {
 	Host    string `yaml:"host"`
@@ -132,10 +150,11 @@ var defaultConfig = Config{
 		InterceptMode:     "global",
 	},
 	Patterns: PatternsConfig{
-		Keywords: []KeywordPattern{},
-		Regex:    []RegexPattern{},
-		Builtin:  []string{},
-		Exclude:  []string{},
+		Keywords:    []KeywordPattern{},
+		Regex:       []RegexPattern{},
+		Builtin:     []string{},
+		Exclude:     []string{},
+		SecretFiles: []SecretFileConfig{},
 		RuleLists: []RuleListConfig{
 			{
 				ID:   "vibeguard-default",
@@ -249,6 +268,21 @@ func expandPath(path string) string {
 	return path
 }
 
+func resolveRelativePath(baseDir, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	path = expandPath(path)
+	if filepath.IsAbs(path) {
+		return path
+	}
+	if strings.TrimSpace(baseDir) == "" {
+		return path
+	}
+	return filepath.Clean(filepath.Join(baseDir, path))
+}
+
 // DataDir returns the data directory path
 func DataDir() string {
 	return filepath.Join(homeDir(), ".vibeguard")
@@ -302,6 +336,12 @@ func (m *Manager) Load() error {
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return err
 		}
+		if len(cfg.Patterns.SecretFiles) > 0 {
+			baseDir := filepath.Dir(globalPath)
+			for i := range cfg.Patterns.SecretFiles {
+				cfg.Patterns.SecretFiles[i].Path = resolveRelativePath(baseDir, cfg.Patterns.SecretFiles[i].Path)
+			}
+		}
 		slog.Debug("Loaded config", "path", globalPath)
 	} else if !os.IsNotExist(err) {
 		return err
@@ -316,6 +356,12 @@ func (m *Manager) Load() error {
 		var projectCfg Config
 		if err := yaml.Unmarshal(data, &projectCfg); err != nil {
 			return err
+		}
+		if len(projectCfg.Patterns.SecretFiles) > 0 {
+			baseDir := filepath.Dir(projectPath)
+			for i := range projectCfg.Patterns.SecretFiles {
+				projectCfg.Patterns.SecretFiles[i].Path = resolveRelativePath(baseDir, projectCfg.Patterns.SecretFiles[i].Path)
+			}
 		}
 		// Merge configs
 		cfg = mergeConfigs(cfg, projectCfg)
@@ -374,6 +420,61 @@ func sanitizeLoadedConfig(cfg *Config) {
 			out = append(out, val)
 		}
 		cfg.Patterns.Exclude = out
+	}
+
+	// Patterns: secret_files
+	if len(cfg.Patterns.SecretFiles) > 0 {
+		out := make([]SecretFileConfig, 0, len(cfg.Patterns.SecretFiles))
+		seen := make(map[string]struct{}, len(cfg.Patterns.SecretFiles))
+		for _, sf := range cfg.Patterns.SecretFiles {
+			path := strings.TrimSpace(sf.Path)
+			if path == "" {
+				continue
+			}
+			path = expandPath(path)
+
+			format := strings.ToLower(strings.TrimSpace(sf.Format))
+			if format == "" {
+				format = "dotenv"
+			}
+
+			cat := SanitizeCategory(sf.Category)
+			if cat == "" {
+				if format == "lines" {
+					cat = "SECRET_FILE"
+				} else {
+					cat = "DOTENV"
+				}
+			}
+
+			minLen := sf.MinValueLen
+			if minLen <= 0 {
+				minLen = 8
+			}
+			if minLen > 1024 {
+				minLen = 1024
+			}
+
+			enabled := true
+			if sf.Enabled != nil {
+				enabled = *sf.Enabled
+			}
+
+			key := format + ":" + path
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			out = append(out, SecretFileConfig{
+				Path:        path,
+				Format:      format,
+				Category:    cat,
+				MinValueLen: minLen,
+				Enabled:     &enabled,
+			})
+		}
+		cfg.Patterns.SecretFiles = out
 	}
 
 	// Patterns: rule_lists
@@ -655,6 +756,11 @@ func mergeConfigs(global, project Config) Config {
 	// Merge exclude patterns (append, not replace)
 	if len(project.Patterns.Exclude) > 0 {
 		result.Patterns.Exclude = append(result.Patterns.Exclude, project.Patterns.Exclude...)
+	}
+
+	// Merge secret file sources (append, not replace)
+	if len(project.Patterns.SecretFiles) > 0 {
+		result.Patterns.SecretFiles = append(result.Patterns.SecretFiles, project.Patterns.SecretFiles...)
 	}
 
 	// Merge rule lists (append, not replace)
