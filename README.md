@@ -35,6 +35,7 @@ VibeGuard is a lightweight MITM HTTPS proxy for protecting sensitive data when v
 - **Admin UI**: configure rules/certificates/sessions at `/manager/`, review per-request redaction hits (Audit), and tail backend debug logs at `#/logs`.
 - **Admin auth**: the admin UI/API is protected by a password (set on first visit to `/manager/`).
 - **At-rest encryption (keywords)**: keyword/exclude values are stored encrypted in `~/.vibeguard/config.yaml` using a key derived from the local CA private key (admin UI still shows plaintext). If you regenerate the CA, old encrypted values cannot be decrypted and must be reconfigured.
+- **Secret files (optional)**: import secrets from local files (e.g. `.env`) via `patterns.secret_files` and redact them automatically.
 - **Two interception modes**: `proxy.intercept_mode: global` or `targets`.
 - **Hot reload**: rule/target updates from the admin UI take effect without restarting.
 
@@ -118,6 +119,16 @@ The uninstallers try to remove the trusted CA (“VibeGuard CA”) automatically
 - Global: `~/.vibeguard/config.yaml`
 - Project override: `.vibeguard.yaml`
 - Override path: `VIBEGUARD_CONFIG=/path/to/config.yaml`
+
+Example: redact secrets from `.env` (prevents accidental exfiltration; it does not stop your client from reading files):
+
+```yaml
+patterns:
+  secret_files:
+    - path: .env
+      format: dotenv
+      enabled: true
+```
 
 ## Usage
 

@@ -35,6 +35,7 @@ import (
 	"github.com/inkdust2021/vibeguard/internal/redact"
 	"github.com/inkdust2021/vibeguard/internal/restore"
 	"github.com/inkdust2021/vibeguard/internal/rulelists"
+	"github.com/inkdust2021/vibeguard/internal/secretsources"
 	"github.com/inkdust2021/vibeguard/internal/session"
 	"github.com/inkdust2021/vibeguard/internal/stream"
 	"github.com/inkdust2021/vibeguard/internal/zstd"
@@ -1370,6 +1371,32 @@ func (s *Server) applyConfig(c config.Config) {
 		exclude = append(exclude, ex)
 	}
 
+	if len(c.Patterns.SecretFiles) > 0 {
+		extra, warns := secretsources.LoadKeywords(c.Patterns.SecretFiles)
+		for _, w := range warns {
+			slog.Warn("Secret file source warning", "error", w)
+		}
+		if len(extra) > 0 {
+			seen := make(map[string]struct{}, len(kws)+len(extra))
+			for _, kw := range kws {
+				if kw.Text == "" {
+					continue
+				}
+				seen[kw.Text] = struct{}{}
+			}
+			for _, kw := range extra {
+				if kw.Text == "" {
+					continue
+				}
+				if _, ok := seen[kw.Text]; ok {
+					continue
+				}
+				seen[kw.Text] = struct{}{}
+				kws = append(kws, kw)
+			}
+		}
+	}
+
 	// The admin UI does not edit regex/builtin directly: use rule lists (.vgrules) for reusable regex/keyword rules.
 	// If the user still configured regex/builtin in config, warn and ignore them here
 	// to avoid "over-broad regexes corrupting the whole text".
@@ -1501,6 +1528,7 @@ func (s *Server) ReloadFromConfig() {
 		"targets", len(rt.targets),
 		"deterministic_placeholders", c.Session.DeterministicPlaceholders,
 		"keywords", len(c.Patterns.Keywords),
+		"secret_files", len(c.Patterns.SecretFiles),
 		"rule_lists", len(c.Patterns.RuleLists),
 		"ner_enabled", c.Patterns.NER.Enabled,
 		"exclude", len(c.Patterns.Exclude),
