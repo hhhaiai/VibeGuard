@@ -458,8 +458,10 @@ func runWithProxy(cmd *cobra.Command, args []string) error {
 	}
 
 	proxyURL := "http://" + hostport
-	noProxy := "127.0.0.1,localhost"
-	childEnv := withProxyEnv(os.Environ(), proxyURL, noProxy)
+	// Do not inject NO_PROXY for child processes:
+	// - This allows proxying localhost/127.0.0.1 traffic when needed (e.g. local AI gateways that should be redacted).
+	// - If the parent environment already sets NO_PROXY, it is preserved (user-controlled bypass list).
+	childEnv := withProxyEnv(os.Environ(), proxyURL)
 	childEnv = withExtraCAEnv(childEnv, filepath.Join(config.GetConfigDir(), "ca.crt"))
 
 	target := args[0]
@@ -508,16 +510,16 @@ func withExtraCAEnv(base []string, caCertPath string) []string {
 	return append(base, "NODE_EXTRA_CA_CERTS="+caCertPath)
 }
 
-func withProxyEnv(base []string, proxyURL, noProxy string) []string {
+func withProxyEnv(base []string, proxyURL string) []string {
 	// Simple override: for duplicate keys, the last one wins.
-	out := make([]string, 0, len(base)+6)
+	out := make([]string, 0, len(base)+4)
 	for _, kv := range base {
 		k := kv
 		if i := strings.IndexByte(kv, '='); i >= 0 {
 			k = kv[:i]
 		}
 		switch strings.ToUpper(k) {
-		case "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy":
+		case "HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy":
 			continue
 		default:
 			out = append(out, kv)
@@ -528,8 +530,6 @@ func withProxyEnv(base []string, proxyURL, noProxy string) []string {
 		"HTTP_PROXY="+proxyURL,
 		"https_proxy="+proxyURL,
 		"http_proxy="+proxyURL,
-		"NO_PROXY="+noProxy,
-		"no_proxy="+noProxy,
 	)
 	return out
 }
