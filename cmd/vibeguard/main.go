@@ -1046,11 +1046,6 @@ log:
 	patterns:
 	  keywords: []
 	  exclude: []
-	  # Optional: import secrets from local files (e.g. .env) and redact them automatically.
-	  # secret_files:
-	  #   - path: .env
-	  #     format: dotenv
-	  #     enabled: true
 	`
 
 	cfgTemplateEn := `# VibeGuard Configuration
@@ -1083,11 +1078,6 @@ targets:
 patterns:
   keywords: []
   exclude: []
-  # Optional: import secrets from local files (e.g. .env) and redact them automatically.
-  # secret_files:
-  #   - path: .env
-  #     format: dotenv
-  #     enabled: true
 `
 
 	// Write config
